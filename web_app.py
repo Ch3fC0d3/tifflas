@@ -20,14 +20,35 @@ import json
 from io import BytesIO
 import base64
 from typing import Dict, List, Tuple
+import tempfile
 
 # Try to import Google Vision API (optional)
+VISION_API_AVAILABLE = False
+vision_client = None
+
 try:
     from google.cloud import vision
-    VISION_API_AVAILABLE = True
+    from google.oauth2 import service_account
+    
+    # Check for credentials in environment
+    if 'GOOGLE_VISION_CREDENTIALS_JSON' in os.environ:
+        # Railway/Cloud deployment: JSON in environment variable
+        creds_json = json.loads(os.environ['GOOGLE_VISION_CREDENTIALS_JSON'])
+        credentials = service_account.Credentials.from_service_account_info(creds_json)
+        vision_client = vision.ImageAnnotatorClient(credentials=credentials)
+        VISION_API_AVAILABLE = True
+        print("✅ Google Vision API: Loaded from environment variable")
+    elif 'GOOGLE_APPLICATION_CREDENTIALS' in os.environ:
+        # Local development: JSON file path
+        vision_client = vision.ImageAnnotatorClient()
+        VISION_API_AVAILABLE = True
+        print("✅ Google Vision API: Loaded from file")
+    else:
+        print("⚠️  Google Vision API: No credentials found")
 except ImportError:
-    VISION_API_AVAILABLE = False
     print("⚠️  Google Vision API not available. Install: pip install google-cloud-vision")
+except Exception as e:
+    print(f"⚠️  Google Vision API error: {e}")
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
@@ -98,13 +119,12 @@ def write_las_simple(depth, curve_data, depth_unit="FT"):
 # ----------------------------
 def detect_text_vision_api(image_bytes):
     """Use Google Vision API to detect text in image"""
-    if not VISION_API_AVAILABLE:
+    if not VISION_API_AVAILABLE or vision_client is None:
         return []
     
     try:
-        client = vision.ImageAnnotatorClient()
         image = vision.Image(content=image_bytes)
-        response = client.text_detection(image=image)
+        response = vision_client.text_detection(image=image)
         
         texts = []
         for text in response.text_annotations[1:]:  # Skip first (full text)
