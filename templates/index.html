@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TIFF→LAS Digitizer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header p { opacity: 0.9; font-size: 1.1em; }
+        .content { padding: 30px; }
+        .step {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+        .step h2 { color: #667eea; margin-bottom: 15px; }
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover { background: #f0f4ff; border-color: #764ba2; }
+        .upload-area.dragover { background: #e0e7ff; border-color: #667eea; }
+        #imagePreview {
+            max-width: 100%;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            margin: 20px 0;
+            cursor: crosshair;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .btn:hover { transform: translateY(-2px); }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .curve-config {
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .curve-config h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-weight: 600;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        #overlay {
+            position: relative;
+            display: inline-block;
+        }
+        .track-box {
+            position: absolute;
+            border: 3px solid #00ff00;
+            pointer-events: none;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 TIFF→LAS Digitizer</h1>
+            <p>Upload your well log image and digitize curves automatically</p>
+        </div>
+
+        <div class="content">
+            <!-- Step 1: Upload -->
+            <div class="step">
+                <h2>Step 1: Upload Image</h2>
+                <div class="upload-area" id="uploadArea">
+                    <p>📁 Drag & drop your TIFF/PNG/JPG here or click to browse</p>
+                    <p style="font-size: 0.9em; color: #666; margin-top: 10px;">⚠️ Max file size: 100MB</p>
+                    <input type="file" id="fileInput" accept="image/*" style="display:none">
+                </div>
+                <div id="imageInfo" class="hidden"></div>
+            </div>
+
+            <!-- Step 2: Image Preview -->
+            <div class="step hidden" id="previewStep">
+                <h2>Step 2: Image Preview</h2>
+                <div id="overlay">
+                    <img id="imagePreview" alt="Log preview">
+                </div>
+                <p style="color: #666; margin-top: 10px;">
+                    📐 Image dimensions: <span id="imageDims"></span>
+                </p>
+            </div>
+
+            <!-- Step 3: Configuration -->
+            <div class="step hidden" id="configStep">
+                <h2>Step 3: Configure Digitization</h2>
+                
+                <div class="form-group">
+                    <label>Depth Configuration</label>
+                    <div class="grid">
+                        <input type="number" id="topPx" placeholder="Top pixel (Y)">
+                        <input type="number" id="bottomPx" placeholder="Bottom pixel (Y)">
+                        <input type="number" id="topDepth" placeholder="Top depth value" step="0.1">
+                        <input type="number" id="bottomDepth" placeholder="Bottom depth value" step="0.1">
+                        <select id="depthUnit">
+                            <option value="FT">Feet (FT)</option>
+                            <option value="M">Meters (M)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Number of Curves</label>
+                    <input type="number" id="numCurves" value="3" min="1" max="10">
+                    <button class="btn" onclick="generateCurveInputs()" style="margin-top: 10px;">Generate Curve Fields</button>
+                </div>
+
+                <div id="curvesContainer"></div>
+
+                <button class="btn" onclick="runDigitization()" id="digitizeBtn" style="margin-top: 20px;">
+                    🚀 Digitize & Download LAS
+                </button>
+            </div>
+
+            <!-- Status Messages -->
+            <div id="statusArea"></div>
+        </div>
+    </div>
+
+    <script>
+        let uploadedImage = null;
+        let imageWidth = 0;
+        let imageHeight = 0;
+
+        // Upload handling
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        async function handleFile(file) {
+            // Check file size (100MB limit)
+            const maxSize = 100 * 1024 * 1024; // 100MB in bytes
+            if (file.size > maxSize) {
+                showStatus(`❌ File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Please use an image smaller than 100MB.`, 'error');
+                return;
+            }
+            
+            showStatus('Uploading...', 'info');
+            
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    uploadedImage = data.image;
+                    imageWidth = data.width;
+                    imageHeight = data.height;
+                    
+                    // Show preview
+                    document.getElementById('imagePreview').src = data.image;
+                    document.getElementById('imageDims').textContent = `${imageWidth} × ${imageHeight} pixels`;
+                    document.getElementById('previewStep').classList.remove('hidden');
+                    document.getElementById('configStep').classList.remove('hidden');
+                    
+                    // Pre-fill with detected values
+                    document.getElementById('topPx').value = 0;
+                    document.getElementById('bottomPx').value = imageHeight - 1;
+                    document.getElementById('topDepth').value = 1000;
+                    document.getElementById('bottomDepth').value = 2000;
+                    
+                    // Auto-generate curve inputs
+                    if (data.tracks && data.tracks.length > 0) {
+                        document.getElementById('numCurves').value = data.tracks.length;
+                        generateCurveInputs(data.tracks);
+                    }
+                    
+                    showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px`, 'success');
+                } else {
+                    showStatus('❌ Error: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showStatus('❌ Upload failed: ' + error.message, 'error');
+            }
+        }
+
+        function generateCurveInputs(tracks = null) {
+            const numCurves = parseInt(document.getElementById('numCurves').value);
+            const container = document.getElementById('curvesContainer');
+            container.innerHTML = '';
+
+            const curveNames = ['GR', 'RHOB', 'NPHI', 'DT', 'CALI', 'SP', 'RES', 'PERM'];
+            const curveUnits = ['API', 'g/cc', 'v/v', 'us/ft', 'in', 'mV', 'ohmm', 'mD'];
+
+            for (let i = 0; i < numCurves; i++) {
+                const track = tracks && tracks[i] ? tracks[i] : null;
+                const leftPx = track ? track[0] : Math.floor(imageWidth * (0.1 + i * 0.8 / numCurves));
+                const rightPx = track ? track[1] : Math.floor(imageWidth * (0.1 + (i + 1) * 0.8 / numCurves));
+
+                const curveDiv = document.createElement('div');
+                curveDiv.className = 'curve-config';
+                curveDiv.innerHTML = `
+                    <h3>Curve ${i + 1}</h3>
+                    <div class="grid">
+                        <input type="text" id="name${i}" placeholder="Name" value="${curveNames[i] || 'CURVE' + (i + 1)}">
+                        <input type="text" id="unit${i}" placeholder="Unit" value="${curveUnits[i] || ''}">
+                        <input type="number" id="leftPx${i}" placeholder="Left X" value="${leftPx}">
+                        <input type="number" id="rightPx${i}" placeholder="Right X" value="${rightPx}">
+                        <input type="number" id="leftVal${i}" placeholder="Left value" step="0.01" value="${i === 0 ? 0 : i === 1 ? 1.95 : 0.45}">
+                        <input type="number" id="rightVal${i}" placeholder="Right value" step="0.01" value="${i === 0 ? 150 : i === 1 ? 2.95 : -0.15}">
+                        <select id="mode${i}">
+                            <option value="black">Black</option>
+                            <option value="red" ${i === 0 ? 'selected' : ''}>Red</option>
+                        </select>
+                    </div>
+                `;
+                container.appendChild(curveDiv);
+            }
+        }
+
+        async function runDigitization() {
+            const btn = document.getElementById('digitizeBtn');
+            btn.disabled = true;
+            showStatus('🔄 Processing...', 'info');
+
+            // Build config
+            const config = {
+                depth: {
+                    top_px: parseInt(document.getElementById('topPx').value),
+                    bottom_px: parseInt(document.getElementById('bottomPx').value),
+                    top_depth: parseFloat(document.getElementById('topDepth').value),
+                    bottom_depth: parseFloat(document.getElementById('bottomDepth').value),
+                    unit: document.getElementById('depthUnit').value
+                },
+                global_options: {
+                    downsample: 1,
+                    blur: 3,
+                    min_run: 2,
+                    smooth_window: 5,
+                    null: -999.25
+                },
+                curves: []
+            };
+
+            const numCurves = parseInt(document.getElementById('numCurves').value);
+            for (let i = 0; i < numCurves; i++) {
+                config.curves.push({
+                    name: document.getElementById(`name${i}`).value,
+                    unit: document.getElementById(`unit${i}`).value,
+                    left_px: parseInt(document.getElementById(`leftPx${i}`).value),
+                    right_px: parseInt(document.getElementById(`rightPx${i}`).value),
+                    left_value: parseFloat(document.getElementById(`leftVal${i}`).value),
+                    right_value: parseFloat(document.getElementById(`rightVal${i}`).value),
+                    mode: document.getElementById(`mode${i}`).value
+                });
+            }
+
+            try {
+                const response = await fetch('/digitize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image: uploadedImage,
+                        config: config
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Download LAS file
+                    const blob = new Blob([data.las_content], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = data.filename;
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                    showStatus('✅ Success! LAS file downloaded.', 'success');
+                } else {
+                    showStatus('❌ Error during digitization', 'error');
+                }
+            } catch (error) {
+                showStatus('❌ Error: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusArea = document.getElementById('statusArea');
+            statusArea.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+    </script>
+</body>
+</html>
