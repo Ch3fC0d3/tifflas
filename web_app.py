@@ -316,7 +316,7 @@ def digitize():
     # Extract config
     cfg = data['config']
     depth_cfg = cfg['depth']
-    curves = (cfg['curves'] or [])[:3]
+    curves = (cfg['curves'] or [])[:6]
     gopt = cfg.get('global_options', {})
     
     null_val = float(gopt.get('null', -999.25))

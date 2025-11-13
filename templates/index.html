@@ -194,8 +194,8 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Number of Curves (max 3)</label>
-                    <input type="number" id="numCurves" value="3" min="1" max="3">
+                    <label>Number of Curves (max 6)</label>
+                    <input type="number" id="numCurves" value="3" min="1" max="6">
                     <button class="btn" onclick="generateCurveInputs()" style="margin-top: 10px;">Generate Curve Fields</button>
                 </div>
 
@@ -315,7 +315,7 @@
                 inferredCurves = ocrSuggestions.curves.length;
             }
             if (inferredCurves) {
-                document.getElementById('numCurves').value = Math.min(3, inferredCurves);
+                document.getElementById('numCurves').value = Math.min(6, Math.max(1, inferredCurves));
             }
         }
 
@@ -388,7 +388,7 @@
             }
 
             if (ocrSuggestions.curves && ocrSuggestions.curves.length) {
-                const maxCurves = Math.min(3, ocrSuggestions.curves.length);
+                const maxCurves = Math.min(6, ocrSuggestions.curves.length);
                 for (let i = 0; i < maxCurves; i++) {
                     const hint = ocrSuggestions.curves[i];
                     const leftInput = document.getElementById(`leftPx${i}`);
