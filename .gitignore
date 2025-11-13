@@ -1,6 +1,7 @@
 .vercel
 google-vision-key.json
 *-key.json
+sweetwatertifftolas-*.json
 *.json.bak
 __pycache__/
 *.pyc

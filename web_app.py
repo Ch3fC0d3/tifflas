@@ -120,28 +120,113 @@ def write_las_simple(depth, curve_data, depth_unit="FT"):
 def detect_text_vision_api(image_bytes):
     """Use Google Vision API to detect text in image"""
     if not VISION_API_AVAILABLE or vision_client is None:
-        return []
-    
+        return {'raw': [], 'numbers': [], 'suggestions': {}}
+
     try:
         image = vision.Image(content=image_bytes)
         response = vision_client.text_detection(image=image)
-        
-        texts = []
+
+        raw_text = []
+        numeric_entries = []
         for text in response.text_annotations[1:]:  # Skip first (full text)
-            # Extract numbers
+            bounding = text.bounding_poly.vertices
+            entry = {
+                'text': text.description,
+                'vertices': [{'x': int(v.x), 'y': int(v.y)} for v in bounding]
+            }
+            raw_text.append(entry)
+
+            # Extract numeric tokens
             import re
             numbers = re.findall(r'-?\d*\.?\d+', text.description)
-            if numbers:
-                texts.append({
-                    'text': text.description,
-                    'number': float(numbers[0]),
-                    'x': int(text.bounding_poly.vertices[0].x),
-                    'y': int(text.bounding_poly.vertices[0].y)
-                })
-        return texts
+            for num in numbers:
+                try:
+                    value = float(num)
+                    x = int(bounding[0].x)
+                    y = int(bounding[0].y)
+                    numeric_entries.append({
+                        'value': value,
+                        'text': text.description,
+                        'x': x,
+                        'y': y
+                    })
+                except ValueError:
+                    continue
+
+        suggestions = build_ocr_suggestions(numeric_entries)
+
+        return {
+            'raw': raw_text,
+            'numbers': numeric_entries,
+            'suggestions': suggestions
+        }
     except Exception as e:
         print(f"Vision API error: {e}")
-        return []
+        return {'raw': [], 'numbers': [], 'suggestions': {}}
+
+
+def build_ocr_suggestions(numeric_entries):
+    """Derive depth and curve hints from numeric OCR entries."""
+    if not numeric_entries:
+        return {}
+
+    # Sort by y (top to bottom)
+    sorted_entries = sorted(numeric_entries, key=lambda n: n['y'])
+
+    depth_candidates = []
+    curve_candidates = []
+
+    for entry in sorted_entries:
+        value = entry['value']
+        y = entry['y']
+        x = entry['x']
+
+        # Heuristic: numbers near image left edge likely depth scale
+        if x < 0.25 * max(e['x'] for e in sorted_entries + [{'x': x}]):
+            depth_candidates.append({'value': value, 'y': y})
+        else:
+            curve_candidates.append({'value': value, 'x': x, 'y': y})
+
+    depth_hint = None
+    if len(depth_candidates) >= 2:
+        top = depth_candidates[0]
+        bottom = depth_candidates[-1]
+        if bottom['y'] > top['y'] and bottom['value'] != top['value']:
+            depth_hint = {
+                'top_depth': top['value'],
+                'bottom_depth': bottom['value'],
+                'top_px': top['y'],
+                'bottom_px': bottom['y']
+            }
+
+    # Suggest curve bounds by clustering x positions
+    curve_hint = None
+    if curve_candidates:
+        sorted_curves = sorted(curve_candidates, key=lambda c: c['x'])
+        clusters = min(3, len(sorted_curves))
+        if clusters:
+            chunk_size = int(np.ceil(len(sorted_curves) / clusters))
+            curve_hint = []
+            for idx in range(clusters):
+                start = idx * chunk_size
+                end = min(len(sorted_curves), (idx + 1) * chunk_size)
+                chunk = sorted_curves[start:end]
+                if not chunk:
+                    continue
+                xs = [p['x'] for p in chunk]
+                curve_hint.append({
+                    'left_px': min(xs),
+                    'right_px': max(xs),
+                    'sample_value': float(np.mean([p['value'] for p in chunk]))
+                })
+
+    suggestions = {}
+    if depth_hint:
+        suggestions['depth'] = depth_hint
+    if curve_hint:
+        suggestions['curves'] = curve_hint
+
+    return suggestions
 
 def auto_detect_tracks(image_array):
     """Auto-detect track boundaries"""
@@ -202,10 +287,10 @@ def upload_file():
     tracks = auto_detect_tracks(img)
     
     # Try OCR if available
-    detected_text = []
+    detected_text = {'raw': [], 'numbers': [], 'suggestions': {}}
     if VISION_API_AVAILABLE:
         detected_text = detect_text_vision_api(file_bytes)
-    
+
     return jsonify({
         'success': True,
         'image': f'data:image/png;base64,{img_base64}',
@@ -213,7 +298,8 @@ def upload_file():
         'height': h,
         'tracks': tracks,
         'detected_text': detected_text,
-        'vision_api_available': VISION_API_AVAILABLE
+        'ocr_suggestions': detected_text.get('suggestions', {}),
+        'vision_api_available': VISION_API_AVAILABLE and bool(detected_text.get('raw'))
     })
 
 @app.route('/digitize', methods=['POST'])
@@ -230,7 +316,7 @@ def digitize():
     # Extract config
     cfg = data['config']
     depth_cfg = cfg['depth']
-    curves = cfg['curves']
+    curves = (cfg['curves'] or [])[:3]
     gopt = cfg.get('global_options', {})
     
     null_val = float(gopt.get('null', -999.25))

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TIFF→LAS Digitizer</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" crossorigin="anonymous"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -126,6 +127,22 @@
             pointer-events: none;
         }
         .hidden { display: none; }
+        .curve-checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .curve-checkboxes label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #eef2ff;
+            border: 1px solid #cbd5ff;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.9em;
+        }
     </style>
 </head>
 <body>
@@ -177,8 +194,8 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Number of Curves</label>
-                    <input type="number" id="numCurves" value="3" min="1" max="10">
+                    <label>Number of Curves (max 3)</label>
+                    <input type="number" id="numCurves" value="3" min="1" max="3">
                     <button class="btn" onclick="generateCurveInputs()" style="margin-top: 10px;">Generate Curve Fields</button>
                 </div>
 
@@ -191,6 +208,16 @@
 
             <!-- Status Messages -->
             <div id="statusArea"></div>
+
+            <!-- Step 4: LAS Preview -->
+            <div class="step hidden" id="viewerStep">
+                <h2>Step 4: LAS Preview</h2>
+                <div class="form-group">
+                    <label>Curves to plot</label>
+                    <div id="curveCheckboxes" class="curve-checkboxes"></div>
+                </div>
+                <canvas id="lasChart" height="280"></canvas>
+            </div>
         </div>
     </div>
 
@@ -198,6 +225,10 @@
         let uploadedImage = null;
         let imageWidth = 0;
         let imageHeight = 0;
+        let lasChart = null;
+        let lasChartData = null;
+        let detectedTracks = [];
+        let ocrSuggestions = null;
 
         // Upload handling
         const uploadArea = document.getElementById('uploadArea');
@@ -249,6 +280,8 @@
                     uploadedImage = data.image;
                     imageWidth = data.width;
                     imageHeight = data.height;
+                    detectedTracks = data.tracks || [];
+                    ocrSuggestions = data.ocr_suggestions || {};
                     
                     // Show preview
                     document.getElementById('imagePreview').src = data.image;
@@ -256,24 +289,33 @@
                     document.getElementById('previewStep').classList.remove('hidden');
                     document.getElementById('configStep').classList.remove('hidden');
                     
-                    // Pre-fill with detected values
+                    // Pre-fill with defaults then apply AI suggestions
                     document.getElementById('topPx').value = 0;
                     document.getElementById('bottomPx').value = imageHeight - 1;
                     document.getElementById('topDepth').value = 1000;
                     document.getElementById('bottomDepth').value = 2000;
+
+                    autoConfigureCurves();
+                    generateCurveInputs();
+                    const appliedHints = applyOcrSuggestions();
+                    const aiNote = appliedHints ? ' ✨ AI suggestions applied.' : '';
                     
-                    // Auto-generate curve inputs
-                    if (data.tracks && data.tracks.length > 0) {
-                        document.getElementById('numCurves').value = data.tracks.length;
-                        generateCurveInputs(data.tracks);
-                    }
-                    
-                    showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px`, 'success');
+                    showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}`, 'success');
                 } else {
                     showStatus('❌ Error: ' + data.error, 'error');
                 }
             } catch (error) {
                 showStatus('❌ Upload failed: ' + error.message, 'error');
+            }
+        }
+
+        function autoConfigureCurves() {
+            let inferredCurves = detectedTracks.length;
+            if (!inferredCurves && ocrSuggestions && ocrSuggestions.curves) {
+                inferredCurves = ocrSuggestions.curves.length;
+            }
+            if (inferredCurves) {
+                document.getElementById('numCurves').value = Math.min(3, inferredCurves);
             }
         }
 
@@ -286,9 +328,10 @@
             const curveUnits = ['API', 'g/cc', 'v/v', 'us/ft', 'in', 'mV', 'ohmm', 'mD'];
 
             for (let i = 0; i < numCurves; i++) {
-                const track = tracks && tracks[i] ? tracks[i] : null;
-                const leftPx = track ? track[0] : Math.floor(imageWidth * (0.1 + i * 0.8 / numCurves));
-                const rightPx = track ? track[1] : Math.floor(imageWidth * (0.1 + (i + 1) * 0.8 / numCurves));
+                const track = (tracks && tracks[i]) || (detectedTracks && detectedTracks[i]) || null;
+                const hint = (ocrSuggestions && ocrSuggestions.curves && ocrSuggestions.curves[i]) || null;
+                const leftPx = track ? track[0] : hint ? Math.round(hint.left_px) : Math.floor(imageWidth * (0.1 + i * 0.8 / numCurves));
+                const rightPx = track ? track[1] : hint ? Math.round(hint.right_px) : Math.floor(imageWidth * (0.1 + (i + 1) * 0.8 / numCurves));
 
                 const curveDiv = document.createElement('div');
                 curveDiv.className = 'curve-config';
@@ -309,6 +352,59 @@
                 `;
                 container.appendChild(curveDiv);
             }
+        }
+
+        function applyOcrSuggestions() {
+            if (!ocrSuggestions) {
+                return false;
+            }
+
+            let applied = false;
+            const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+            if (ocrSuggestions.depth) {
+                const depthHint = ocrSuggestions.depth;
+                const topPxInput = document.getElementById('topPx');
+                const bottomPxInput = document.getElementById('bottomPx');
+                const topDepthInput = document.getElementById('topDepth');
+                const bottomDepthInput = document.getElementById('bottomDepth');
+
+                if (topPxInput && Number.isFinite(depthHint.top_px)) {
+                    topPxInput.value = Math.round(clamp(depthHint.top_px, 0, imageHeight - 1));
+                    applied = true;
+                }
+                if (bottomPxInput && Number.isFinite(depthHint.bottom_px)) {
+                    bottomPxInput.value = Math.round(clamp(depthHint.bottom_px, 0, imageHeight - 1));
+                    applied = true;
+                }
+                if (topDepthInput && Number.isFinite(depthHint.top_depth)) {
+                    topDepthInput.value = depthHint.top_depth;
+                    applied = true;
+                }
+                if (bottomDepthInput && Number.isFinite(depthHint.bottom_depth)) {
+                    bottomDepthInput.value = depthHint.bottom_depth;
+                    applied = true;
+                }
+            }
+
+            if (ocrSuggestions.curves && ocrSuggestions.curves.length) {
+                const maxCurves = Math.min(3, ocrSuggestions.curves.length);
+                for (let i = 0; i < maxCurves; i++) {
+                    const hint = ocrSuggestions.curves[i];
+                    const leftInput = document.getElementById(`leftPx${i}`);
+                    const rightInput = document.getElementById(`rightPx${i}`);
+                    if (hint && leftInput && Number.isFinite(hint.left_px)) {
+                        leftInput.value = Math.round(clamp(hint.left_px, 0, imageWidth - 1));
+                        applied = true;
+                    }
+                    if (hint && rightInput && Number.isFinite(hint.right_px)) {
+                        rightInput.value = Math.round(clamp(hint.right_px, 0, imageWidth - 1));
+                        applied = true;
+                    }
+                }
+            }
+
+            return applied;
         }
 
         async function runDigitization() {
@@ -370,7 +466,8 @@
                     a.click();
                     URL.revokeObjectURL(url);
 
-                    showStatus('✅ Success! LAS file downloaded.', 'success');
+                    showStatus('✅ Success! LAS file downloaded and preview ready below.', 'success');
+                    showLasViewer(data.las_content);
                 } else {
                     showStatus('❌ Error during digitization', 'error');
                 }
@@ -384,6 +481,157 @@
         function showStatus(message, type) {
             const statusArea = document.getElementById('statusArea');
             statusArea.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+
+        function parseLas(lasText) {
+            const lines = lasText.split(/\r?\n/);
+            const curveOrder = [];
+            const curveValues = {};
+            const depth = [];
+            let depthName = 'DEPTH';
+            let inCurveSection = false;
+            let inAsciiSection = false;
+
+            for (const rawLine of lines) {
+                const line = rawLine.trim();
+                if (!line) continue;
+
+                if (line.startsWith('~')) {
+                    const upper = line.toUpperCase();
+                    inCurveSection = upper.startsWith('~CURVE');
+                    inAsciiSection = upper.startsWith('~ASCII');
+                    continue;
+                }
+
+                if (inCurveSection) {
+                    const match = line.match(/^([A-Za-z0-9_]+)\./);
+                    if (match) {
+                        const name = match[1].toUpperCase();
+                        if (!curveOrder.includes(name)) {
+                            curveOrder.push(name);
+                            curveValues[name] = [];
+                        }
+                    }
+                    continue;
+                }
+
+                if (inAsciiSection) {
+                    const parts = line.split(/\s+/).map(Number);
+                    if (parts.some((p) => Number.isNaN(p))) {
+                        continue;
+                    }
+                    if (curveOrder.length === 0 || parts.length < curveOrder.length) {
+                        continue;
+                    }
+                    depth.push(parts[0]);
+                    curveOrder.forEach((name, idx) => {
+                        if (idx === 0) {
+                            depthName = name;
+                            return;
+                        }
+                        curveValues[name].push(parts[idx]);
+                    });
+                }
+            }
+
+            if (!depth.length || curveOrder.length <= 1) {
+                return null;
+            }
+
+            const curves = curveOrder
+                .slice(1)
+                .map((name) => ({ name, values: curveValues[name] || [] }));
+
+            return { depth, depthName, curves };
+        }
+
+        function showLasViewer(lasText) {
+            const parsed = parseLas(lasText);
+            if (!parsed) {
+                showStatus('⚠️ Unable to parse LAS for preview.', 'info');
+                return;
+            }
+
+            lasChartData = parsed;
+            const checkboxContainer = document.getElementById('curveCheckboxes');
+            checkboxContainer.innerHTML = '';
+
+            parsed.curves.forEach((curve, index) => {
+                const label = document.createElement('label');
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.value = curve.name;
+                input.checked = index === 0;
+                input.addEventListener('change', updateLasChart);
+                label.appendChild(input);
+                label.appendChild(document.createTextNode(curve.name));
+                checkboxContainer.appendChild(label);
+            });
+
+            document.getElementById('viewerStep').classList.remove('hidden');
+            updateLasChart();
+        }
+
+        function updateLasChart() {
+            if (!lasChartData) return;
+            const checkboxContainer = document.getElementById('curveCheckboxes');
+            const selected = Array.from(checkboxContainer.querySelectorAll('input[type="checkbox"]:checked'))
+                .map((input) => input.value);
+
+            if (!selected.length) {
+                if (lasChart) {
+                    lasChart.destroy();
+                    lasChart = null;
+                }
+                return;
+            }
+
+            const colors = ['#6366F1', '#EC4899', '#22C55E', '#F97316', '#0EA5E9', '#A855F7', '#F59E0B', '#14B8A6'];
+            const datasets = selected.map((name, idx) => {
+                const values = lasChartData.curves.find((curve) => curve.name === name)?.values || [];
+                return {
+                    label: name,
+                    data: lasChartData.depth.map((depthValue, i) => ({ x: values[i], y: depthValue })),
+                    borderColor: colors[idx % colors.length],
+                    tension: 0.1,
+                    fill: false,
+                    spanGaps: true
+                };
+            });
+
+            const ctx = document.getElementById('lasChart').getContext('2d');
+            if (lasChart) {
+                lasChart.destroy();
+            }
+
+            lasChart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    interaction: { mode: 'nearest', intersect: false },
+                    plugins: {
+                        legend: { position: 'bottom' },
+                        tooltip: {
+                            callbacks: {
+                                label(ctx) {
+                                    const value = ctx.parsed.x ?? 'NaN';
+                                    return `${ctx.dataset.label}: ${value}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: 'Curve Value' }
+                        },
+                        y: {
+                            title: { display: true, text: `${lasChartData.depthName} (increasing down)` },
+                            reverse: true
+                        }
+                    }
+                }
+            });
         }
     </script>
 </body>
