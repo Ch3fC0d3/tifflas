@@ -126,6 +126,32 @@ def write_las_simple(depth, curve_data, depth_unit="FT"):
 # ----------------------------
 # Google Vision API Functions
 # ----------------------------
+def downsample_for_ocr(image_bytes, max_height=2000):
+    """Downsample large images before OCR to reduce memory usage"""
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    if img is None:
+        return image_bytes
+    
+    h, w, _ = img.shape
+    
+    # Only downsample if height exceeds max_height
+    if h <= max_height:
+        return image_bytes
+    
+    # Calculate new dimensions maintaining aspect ratio
+    scale = max_height / h
+    new_w = int(w * scale)
+    new_h = max_height
+    
+    # Resize image
+    resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    
+    # Re-encode to bytes
+    _, buffer = cv2.imencode('.jpg', resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    return buffer.tobytes()
+
 def detect_text_vision_api(image_bytes):
     """Use Google Vision API to detect text in image"""
     if not VISION_API_AVAILABLE or vision_client is None:
@@ -295,10 +321,11 @@ def upload_file():
     # Auto-detect tracks
     tracks = auto_detect_tracks(img)
     
-    # Try OCR if available
+    # Try OCR if available (downsample first to reduce memory usage)
     detected_text = {'raw': [], 'numbers': [], 'suggestions': {}}
     if VISION_API_AVAILABLE:
-        detected_text = detect_text_vision_api(file_bytes)
+        ocr_bytes = downsample_for_ocr(file_bytes, max_height=2000)
+        detected_text = detect_text_vision_api(ocr_bytes)
 
     return jsonify({
         'success': True,
