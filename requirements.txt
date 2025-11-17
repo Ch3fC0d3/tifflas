@@ -4,4 +4,4 @@ numpy==1.26.2
 pandas==2.1.4
 gunicorn==21.2.0
 google-cloud-vision==3.5.0
-lasio==0.30.0
+lasio==0.32.0

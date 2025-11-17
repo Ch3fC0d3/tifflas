@@ -56,8 +56,9 @@ LASIO_AVAILABLE = False
 try:
     import lasio
     LASIO_AVAILABLE = True
-except ImportError:
-    print("ℹ️  lasio not installed; LAS validation will be skipped.")
+    print("✅ lasio imported; LAS validation enabled.")
+except Exception as e:
+    print(f"ℹ️  lasio unavailable; LAS validation will be skipped: {e}")
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
@@ -106,7 +107,8 @@ def write_las_simple(depth, curve_data, depth_unit="FT"):
     lines.append("~Well Information\n")
     lines.append(f" STRT.{depth_unit} {depth[0]:.4f} : START DEPTH\n")
     lines.append(f" STOP.{depth_unit} {depth[-1]:.4f} : STOP DEPTH\n")
-    lines.append(f" STEP.{depth_unit} 0.0000 : STEP\n")
+    step = float(depth[1] - depth[0]) if depth.size > 1 else 0.0
+    lines.append(f" STEP.{depth_unit} {step:.4f} : STEP\n")
     lines.append(f" NULL. {null_val} : NULL VALUE\n")
     lines.append("~Curve Information\n")
     lines.append(f" DEPT.{depth_unit} : Depth\n")
