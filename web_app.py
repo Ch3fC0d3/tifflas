@@ -321,11 +321,10 @@ def upload_file():
     # Auto-detect tracks
     tracks = auto_detect_tracks(img)
     
-    # Try OCR if available (downsample first to reduce memory usage)
+    # Try OCR if available
     detected_text = {'raw': [], 'numbers': [], 'suggestions': {}}
     if VISION_API_AVAILABLE:
-        ocr_bytes = downsample_for_ocr(file_bytes, max_height=2000)
-        detected_text = detect_text_vision_api(ocr_bytes)
+        detected_text = detect_text_vision_api(file_bytes)
 
     return jsonify({
         'success': True,
