@@ -55,27 +55,28 @@ def write_las_simple(depth, curve_data, depth_unit="FT"):
     """Generate LAS file as string"""
     null_val = -999.25
     lines = []
-    lines.append("~Version information\n")
+    lines.append("~Version\n")
     lines.append(" VERS. 2.0 : CWLS LOG ASCII STANDARD\n")
     lines.append(" WRAP. NO  : One line per depth step\n")
-    lines.append("~Well Information\n")
+    lines.append("~Well\n")
     lines.append(f" STRT.{depth_unit} {depth[0]:.4f} : START DEPTH\n")
     lines.append(f" STOP.{depth_unit} {depth[-1]:.4f} : STOP DEPTH\n")
-    lines.append(f" STEP.{depth_unit} 0.0000 : STEP\n")
+    step = float(depth[1] - depth[0]) if depth.size > 1 else 0.0
+    lines.append(f" STEP.{depth_unit} {step:.4f} : STEP\n")
     lines.append(f" NULL. {null_val} : NULL VALUE\n")
-    lines.append("~Curve Information\n")
+    lines.append("~Curve\n")
     lines.append(f" DEPT.{depth_unit} : Depth\n")
     for name, meta in curve_data.items():
         unit = meta.get("unit", "")
         lines.append(f" {name}.{unit} : {name}\n")
-    lines.append("~ASCII Log Data\n")
-    
+    lines.append("~ASCII\n")
+
     names = list(curve_data.keys())
     arrays = [curve_data[n]["values"] for n in names]
     for i in range(depth.size):
         row = [f"{depth[i]:.4f}"] + [f"{arrays[j][i]:.4f}" for j in range(len(arrays))]
         lines.append(" ".join(row) + "\n")
-    
+
     return "".join(lines)
 
 def auto_detect_tracks(image_array):
