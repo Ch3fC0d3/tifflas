@@ -92,6 +92,14 @@
             cursor: not-allowed;
             transform: none;
         }
+        .scroll-bottom-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            font-size: 14px;
+            z-index: 999;
+        }
         .curve-config {
             background: white;
             border: 2px solid #ddd;
@@ -153,6 +161,7 @@
         </div>
 
         <div class="content">
+            <button type="button" class="btn scroll-bottom-btn" onclick="scrollToBottom()">⬇ Scroll to bottom</button>
             <!-- Step 1: Upload -->
             <div class="step">
                 <h2>Step 1: Upload Image</h2>
@@ -519,6 +528,13 @@
         function showStatus(message, type) {
             const statusArea = document.getElementById('statusArea');
             statusArea.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+
+        function scrollToBottom() {
+            window.scrollTo({
+                top: document.body.scrollHeight,
+                behavior: 'smooth'
+            });
         }
 
         function parseLas(lasText) {
