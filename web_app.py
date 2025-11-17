@@ -120,6 +120,12 @@ def write_las_simple(depth, curve_data, depth_unit="FT"):
     lines.append(f" NULL.               {null_val:.4f}:" + eol)
     lines.append(" WELL.               WELL NAME:  DIGITIZED_LOG" + eol)
 
+    # Minimal parameter information section (to match legacy LAS 1.2 style)
+    lines.append("~PARAMETER INFORMATION BLOCK" + eol)
+    lines.append("#MNEM.UNIT       VALUE        DESCRIPTION" + eol)
+    lines.append("#---------     -----------    ---------------------------" + eol)
+    lines.append(" EKB .               0.0000:  ELEVATION OF KELLY BUSHING" + eol)
+
     # Curve information section
     lines.append("~CURVE INFORMATION BLOCK" + eol)
     lines.append("#MNEM.UNIT                 API CODE     CURVE DESCRIPTION" + eol)
@@ -428,8 +434,39 @@ def digitize():
         vals_out = np.where(np.isnan(vals), null_val, vals).astype(np.float32)
         curve_data[name] = {'unit': unit, 'values': vals_out}
     
+    # Resample to fixed 0.5 ft step when using feet
+    las_depth = base_depth
+    las_curve_data = curve_data
+    if depth_unit.upper() == "FT" and base_depth.size > 1:
+        start = float(base_depth[0])
+        stop = float(base_depth[-1])
+        step_mag = 0.5
+
+        if stop >= start:
+            las_depth = np.arange(start, stop + step_mag * 0.5, step_mag, dtype=np.float32)
+        else:
+            las_depth = np.arange(start, stop - step_mag * 0.5, -step_mag, dtype=np.float32)
+
+        las_curve_data = {}
+        for name, meta in curve_data.items():
+            vals = meta["values"].astype(np.float32)
+            valid_mask = vals != null_val
+
+            if not np.any(valid_mask):
+                new_vals = np.full(las_depth.shape, null_val, dtype=np.float32)
+            else:
+                depth_valid = base_depth[valid_mask]
+                vals_valid = vals[valid_mask]
+                order = np.argsort(depth_valid)
+                depth_sorted = depth_valid[order]
+                vals_sorted = vals_valid[order]
+                interp_vals = np.interp(las_depth, depth_sorted, vals_sorted, left=null_val, right=null_val)
+                new_vals = interp_vals.astype(np.float32)
+
+            las_curve_data[name] = {"unit": meta.get("unit", ""), "values": new_vals}
+
     # Generate LAS file
-    las_content = write_las_simple(base_depth, curve_data, depth_unit)
+    las_content = write_las_simple(las_depth, las_curve_data, depth_unit)
 
     # Validate LAS output if possible
     validation = {
