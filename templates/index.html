@@ -182,14 +182,29 @@
                 <div class="form-group">
                     <label>Depth Configuration</label>
                     <div class="grid">
-                        <input type="number" id="topPx" placeholder="Top pixel (Y)">
-                        <input type="number" id="bottomPx" placeholder="Bottom pixel (Y)">
-                        <input type="number" id="topDepth" placeholder="Top depth value" step="0.1">
-                        <input type="number" id="bottomDepth" placeholder="Bottom depth value" step="0.1">
-                        <select id="depthUnit">
-                            <option value="FT">Feet (FT)</option>
-                            <option value="M">Meters (M)</option>
-                        </select>
+                        <div class="field">
+                            <label for="topPx">Top pixel (Y)</label>
+                            <input type="number" id="topPx" placeholder="Top pixel (Y)">
+                        </div>
+                        <div class="field">
+                            <label for="bottomPx">Bottom pixel (Y)</label>
+                            <input type="number" id="bottomPx" placeholder="Bottom pixel (Y)">
+                        </div>
+                        <div class="field">
+                            <label for="topDepth">Top depth value</label>
+                            <input type="number" id="topDepth" placeholder="Top depth value" step="0.1">
+                        </div>
+                        <div class="field">
+                            <label for="bottomDepth">Bottom depth value</label>
+                            <input type="number" id="bottomDepth" placeholder="Bottom depth value" step="0.1">
+                        </div>
+                        <div class="field">
+                            <label for="depthUnit">Depth unit</label>
+                            <select id="depthUnit">
+                                <option value="FT">Feet (FT)</option>
+                                <option value="M">Meters (M)</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -209,14 +224,12 @@
             <!-- Status Messages -->
             <div id="statusArea"></div>
 
-            <!-- Step 4: LAS Preview -->
-            <div class="step hidden" id="viewerStep">
-                <h2>Step 4: LAS Preview</h2>
-                <div class="form-group">
-                    <label>Curves to plot</label>
-                    <div id="curveCheckboxes" class="curve-checkboxes"></div>
+            <!-- Step 4: AI Insights -->
+            <div class="step hidden" id="insightsStep">
+                <h2>Step 4: AI Insights</h2>
+                <div id="aiInsightContent" class="insight-card">
+                    <p>Upload a log image to see Vision OCR suggestions here.</p>
                 </div>
-                <canvas id="lasChart" height="280"></canvas>
             </div>
         </div>
     </div>
@@ -225,8 +238,6 @@
         let uploadedImage = null;
         let imageWidth = 0;
         let imageHeight = 0;
-        let lasChart = null;
-        let lasChartData = null;
         let detectedTracks = [];
         let ocrSuggestions = null;
 
@@ -301,6 +312,7 @@
                     const aiNote = appliedHints ? ' ✨ AI suggestions applied.' : '';
                     
                     showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}`, 'success');
+                    renderAiInsights();
                 } else {
                     showStatus('❌ Error: ' + data.error, 'error');
                 }
@@ -338,16 +350,37 @@
                 curveDiv.innerHTML = `
                     <h3>Curve ${i + 1}</h3>
                     <div class="grid">
-                        <input type="text" id="name${i}" placeholder="Name" value="${curveNames[i] || 'CURVE' + (i + 1)}">
-                        <input type="text" id="unit${i}" placeholder="Unit" value="${curveUnits[i] || ''}">
-                        <input type="number" id="leftPx${i}" placeholder="Left X" value="${leftPx}">
-                        <input type="number" id="rightPx${i}" placeholder="Right X" value="${rightPx}">
-                        <input type="number" id="leftVal${i}" placeholder="Left value" step="0.01" value="${i === 0 ? 0 : i === 1 ? 1.95 : 0.45}">
-                        <input type="number" id="rightVal${i}" placeholder="Right value" step="0.01" value="${i === 0 ? 150 : i === 1 ? 2.95 : -0.15}">
-                        <select id="mode${i}">
-                            <option value="black">Black</option>
-                            <option value="red" ${i === 0 ? 'selected' : ''}>Red</option>
-                        </select>
+                        <div class="field">
+                            <label for="name${i}">Curve name</label>
+                            <input type="text" id="name${i}" placeholder="Name" value="${curveNames[i] || 'CURVE' + (i + 1)}">
+                        </div>
+                        <div class="field">
+                            <label for="unit${i}">Curve unit</label>
+                            <input type="text" id="unit${i}" placeholder="Unit" value="${curveUnits[i] || ''}">
+                        </div>
+                        <div class="field">
+                            <label for="leftPx${i}">Left pixel (X)</label>
+                            <input type="number" id="leftPx${i}" placeholder="Left X" value="${leftPx}">
+                        </div>
+                        <div class="field">
+                            <label for="rightPx${i}">Right pixel (X)</label>
+                            <input type="number" id="rightPx${i}" placeholder="Right X" value="${rightPx}">
+                        </div>
+                        <div class="field">
+                            <label for="leftVal${i}">Left scale value</label>
+                            <input type="number" id="leftVal${i}" placeholder="Left value" step="0.01" value="${i === 0 ? 0 : i === 1 ? 1.95 : 0.45}">
+                        </div>
+                        <div class="field">
+                            <label for="rightVal${i}">Right scale value</label>
+                            <input type="number" id="rightVal${i}" placeholder="Right value" step="0.01" value="${i === 0 ? 150 : i === 1 ? 2.95 : -0.15}">
+                        </div>
+                        <div class="field">
+                            <label for="mode${i}">Curve color / mode</label>
+                            <select id="mode${i}">
+                                <option value="black">Black</option>
+                                <option value="red" ${i === 0 ? 'selected' : ''}>Red</option>
+                            </select>
+                        </div>
                     </div>
                 `;
                 container.appendChild(curveDiv);
@@ -466,8 +499,13 @@
                     a.click();
                     URL.revokeObjectURL(url);
 
-                    showStatus('✅ Success! LAS file downloaded and preview ready below.', 'success');
-                    showLasViewer(data.las_content);
+                    if (data.validation && data.validation.passed) {
+                        showStatus(`✅ LAS file downloaded. ${data.validation.message}`, 'success');
+                    } else if (data.validation) {
+                        showStatus(`⚠️ LAS saved, but validation reported: ${data.validation.message}`, 'info');
+                    } else {
+                        showStatus('✅ Success! LAS file downloaded.', 'success');
+                    }
                 } else {
                     showStatus('❌ Error during digitization', 'error');
                 }
@@ -545,93 +583,52 @@
             return { depth, depthName, curves };
         }
 
-        function showLasViewer(lasText) {
-            const parsed = parseLas(lasText);
-            if (!parsed) {
-                showStatus('⚠️ Unable to parse LAS for preview.', 'info');
+        function renderAiInsights() {
+            const insightsStep = document.getElementById('insightsStep');
+            const panel = document.getElementById('aiInsightContent');
+            insightsStep.classList.remove('hidden');
+
+            if (!ocrSuggestions || (!ocrSuggestions.depth && !(ocrSuggestions.curves && ocrSuggestions.curves.length))) {
+                panel.innerHTML = '<p>AI hints were not confident enough to suggest values for this image.</p>';
                 return;
             }
 
-            lasChartData = parsed;
-            const checkboxContainer = document.getElementById('curveCheckboxes');
-            checkboxContainer.innerHTML = '';
+            const parts = [];
 
-            parsed.curves.forEach((curve, index) => {
-                const label = document.createElement('label');
-                const input = document.createElement('input');
-                input.type = 'checkbox';
-                input.value = curve.name;
-                input.checked = index === 0;
-                input.addEventListener('change', updateLasChart);
-                label.appendChild(input);
-                label.appendChild(document.createTextNode(curve.name));
-                checkboxContainer.appendChild(label);
-            });
-
-            document.getElementById('viewerStep').classList.remove('hidden');
-            updateLasChart();
-        }
-
-        function updateLasChart() {
-            if (!lasChartData) return;
-            const checkboxContainer = document.getElementById('curveCheckboxes');
-            const selected = Array.from(checkboxContainer.querySelectorAll('input[type="checkbox"]:checked'))
-                .map((input) => input.value);
-
-            if (!selected.length) {
-                if (lasChart) {
-                    lasChart.destroy();
-                    lasChart = null;
-                }
-                return;
+            if (ocrSuggestions.depth) {
+                const d = ocrSuggestions.depth;
+                parts.push(`
+                    <div class="insight-block">
+                        <h3>Depth Scale</h3>
+                        <ul>
+                            <li>Top pixel ≈ <strong>${Math.round(d.top_px)}</strong></li>
+                            <li>Bottom pixel ≈ <strong>${Math.round(d.bottom_px)}</strong></li>
+                            <li>Top depth ≈ <strong>${d.top_depth}</strong></li>
+                            <li>Bottom depth ≈ <strong>${d.bottom_depth}</strong></li>
+                        </ul>
+                    </div>
+                `);
             }
 
-            const colors = ['#6366F1', '#EC4899', '#22C55E', '#F97316', '#0EA5E9', '#A855F7', '#F59E0B', '#14B8A6'];
-            const datasets = selected.map((name, idx) => {
-                const values = lasChartData.curves.find((curve) => curve.name === name)?.values || [];
-                return {
-                    label: name,
-                    data: lasChartData.depth.map((depthValue, i) => ({ x: values[i], y: depthValue })),
-                    borderColor: colors[idx % colors.length],
-                    tension: 0.1,
-                    fill: false,
-                    spanGaps: true
-                };
-            });
-
-            const ctx = document.getElementById('lasChart').getContext('2d');
-            if (lasChart) {
-                lasChart.destroy();
+            if (ocrSuggestions.curves && ocrSuggestions.curves.length) {
+                const list = ocrSuggestions.curves
+                    .slice(0, 6)
+                    .map((hint, idx) => `
+                        <li>
+                            Curve ${idx + 1}: pixels ${Math.round(hint.left_px)} → ${Math.round(hint.right_px)}
+                            ${hint.sample_value !== undefined ? `(sample value ≈ ${hint.sample_value.toFixed(2)})` : ''}
+                        </li>
+                    `)
+                    .join('');
+                parts.push(`
+                    <div class="insight-block">
+                        <h3>Curve Tracks</h3>
+                        <ul>${list}</ul>
+                    </div>
+                `);
             }
 
-            lasChart = new Chart(ctx, {
-                type: 'line',
-                data: { datasets },
-                options: {
-                    responsive: true,
-                    interaction: { mode: 'nearest', intersect: false },
-                    plugins: {
-                        legend: { position: 'bottom' },
-                        tooltip: {
-                            callbacks: {
-                                label(ctx) {
-                                    const value = ctx.parsed.x ?? 'NaN';
-                                    return `${ctx.dataset.label}: ${value}`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            title: { display: true, text: 'Curve Value' }
-                        },
-                        y: {
-                            title: { display: true, text: `${lasChartData.depthName} (increasing down)` },
-                            reverse: true
-                        }
-                    }
-                }
-            });
+            panel.innerHTML = parts.join('');
         }
     </script>
 </body>

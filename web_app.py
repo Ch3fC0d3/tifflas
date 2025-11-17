@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import json
-from io import BytesIO
+from io import BytesIO, StringIO
 import base64
 from typing import Dict, List, Tuple
 import tempfile
@@ -49,6 +49,15 @@ except ImportError:
     print("⚠️  Google Vision API not available. Install: pip install google-cloud-vision")
 except Exception as e:
     print(f"⚠️  Google Vision API error: {e}")
+
+# Optional LAS validator
+LASIO_AVAILABLE = False
+
+try:
+    import lasio
+    LASIO_AVAILABLE = True
+except ImportError:
+    print("ℹ️  lasio not installed; LAS validation will be skipped.")
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
@@ -375,11 +384,30 @@ def digitize():
     
     # Generate LAS file
     las_content = write_las_simple(base_depth, curve_data, depth_unit)
+
+    # Validate LAS output if possible
+    validation = {
+        'passed': True,
+        'message': 'LAS validation skipped (lasio not installed).'
+    }
+    if LASIO_AVAILABLE:
+        try:
+            lasio.read(StringIO(las_content))
+            validation = {
+                'passed': True,
+                'message': 'LAS parsed successfully with lasio.'
+            }
+        except Exception as exc:
+            validation = {
+                'passed': False,
+                'message': f'LAS validation failed: {exc}'
+            }
     
     return jsonify({
         'success': True,
         'las_content': las_content,
-        'filename': 'digitized_log.las'
+        'filename': 'digitized_log.las',
+        'validation': validation
     })
 
 @app.route('/health')
