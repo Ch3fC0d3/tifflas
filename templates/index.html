@@ -553,7 +553,7 @@
                 if (line.startsWith('~')) {
                     const upper = line.toUpperCase();
                     inCurveSection = upper.startsWith('~CURVE');
-                    inAsciiSection = upper.startsWith('~ASCII');
+                    inAsciiSection = upper.startsWith('~ASCII') || upper.startsWith('~A');
                     continue;
                 }
 

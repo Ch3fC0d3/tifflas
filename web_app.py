@@ -56,9 +56,8 @@ LASIO_AVAILABLE = False
 try:
     import lasio
     LASIO_AVAILABLE = True
-    print("✅ lasio imported; LAS validation enabled.")
-except Exception as e:
-    print(f"ℹ️  lasio unavailable; LAS validation will be skipped: {e}")
+except ImportError:
+    print("ℹ️  lasio not installed; LAS validation will be skipped.")
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
@@ -98,31 +97,50 @@ def compute_depth_vector(nrows, top_depth, bottom_depth):
     return top_depth + (ys / max(1, nrows-1)) * (bottom_depth - top_depth)
 
 def write_las_simple(depth, curve_data, depth_unit="FT"):
-    """Generate LAS file as string"""
+    """Generate LAS 1.2-style file compatible with QuickSyn"""
     null_val = -999.25
+    unit_token = "F" if depth_unit.upper().startswith("F") else depth_unit.upper()
+    eol = "\r\n"
+
     lines = []
-    lines.append("~Version\n")
-    lines.append(" VERS. 2.0 : CWLS LOG ASCII STANDARD\n")
-    lines.append(" WRAP. NO  : One line per depth step\n")
-    lines.append("~Well\n")
-    lines.append(f" STRT.{depth_unit} {depth[0]:.4f} : START DEPTH\n")
-    lines.append(f" STOP.{depth_unit} {depth[-1]:.4f} : STOP DEPTH\n")
+
+    # Version section (LAS 1.2 style)
+    lines.append("~VERSION INFORMATION" + eol)
+    lines.append(" VERS.                 1.20:   CWLS LOG ASCII STANDARD -VERSION 1.20" + eol)
+    lines.append(" WRAP.                   NO:   ONE LINE PER DEPTH STEP" + eol)
+
+    # Well information section
+    lines.append("~WELL INFORMATION BLOCK" + eol)
+    lines.append("#MNEM.UNIT       DATA TYPE    INFORMATION" + eol)
+    lines.append("#---------     -----------    ---------------------------" + eol)
+    lines.append(f" STRT.{unit_token}               {depth[0]:.4f}:" + eol)
+    lines.append(f" STOP.{unit_token}               {depth[-1]:.4f}:" + eol)
     step = float(depth[1] - depth[0]) if depth.size > 1 else 0.0
-    lines.append(f" STEP.{depth_unit} {step:.4f} : STEP\n")
-    lines.append(f" NULL. {null_val} : NULL VALUE\n")
-    lines.append("~Curve\n")
-    lines.append(f" DEPT.{depth_unit} : Depth\n")
+    lines.append(f" STEP.{unit_token}               {step:.4f}:" + eol)
+    lines.append(f" NULL.               {null_val:.4f}:" + eol)
+    lines.append(" WELL.               WELL NAME:  DIGITIZED_LOG" + eol)
+
+    # Curve information section
+    lines.append("~CURVE INFORMATION BLOCK" + eol)
+    lines.append("#MNEM.UNIT                 API CODE     CURVE DESCRIPTION" + eol)
+    lines.append("#---------               -----------    ---------------------------" + eol)
+    lines.append(f" DEPT.{unit_token}                 00 000 000 000:  DEPTH" + eol)
     for name, meta in curve_data.items():
         unit = meta.get("unit", "")
-        lines.append(f" {name}.{unit} : {name}\n")
-    lines.append("~ASCII\n")
-    
+        lines.append(f" {name.upper()}.{unit} :  {name.upper()}" + eol)
+
+    # ASCII data section (~A header with column labels)
     names = list(curve_data.keys())
     arrays = [curve_data[n]["values"] for n in names]
+
+    header_cols = ["DEPTH"] + [n.upper() for n in names]
+    header = " ".join(f"{c:>10}" for c in header_cols)
+    lines.append("~A " + header + eol)
+
     for i in range(depth.size):
-        row = [f"{depth[i]:.4f}"] + [f"{arrays[j][i]:.4f}" for j in range(len(arrays))]
-        lines.append(" ".join(row) + "\n")
-    
+        row_vals = [f"{depth[i]:10.4f}"] + [f"{arrays[j][i]:10.4f}" for j in range(len(arrays))]
+        lines.append(" ".join(row_vals) + eol)
+
     return "".join(lines)
 
 # ----------------------------
@@ -410,39 +428,8 @@ def digitize():
         vals_out = np.where(np.isnan(vals), null_val, vals).astype(np.float32)
         curve_data[name] = {'unit': unit, 'values': vals_out}
     
-    # Resample to fixed 0.5 ft step when using feet
-    las_depth = base_depth
-    las_curve_data = curve_data
-    if depth_unit.upper() == "FT" and base_depth.size > 1:
-        start = float(base_depth[0])
-        stop = float(base_depth[-1])
-        step_mag = 0.5
-
-        if stop >= start:
-            las_depth = np.arange(start, stop + step_mag * 0.5, step_mag, dtype=np.float32)
-        else:
-            las_depth = np.arange(start, stop - step_mag * 0.5, -step_mag, dtype=np.float32)
-
-        las_curve_data = {}
-        for name, meta in curve_data.items():
-            vals = meta["values"].astype(np.float32)
-            valid_mask = vals != null_val
-
-            if not np.any(valid_mask):
-                new_vals = np.full(las_depth.shape, null_val, dtype=np.float32)
-            else:
-                depth_valid = base_depth[valid_mask]
-                vals_valid = vals[valid_mask]
-                order = np.argsort(depth_valid)
-                depth_sorted = depth_valid[order]
-                vals_sorted = vals_valid[order]
-                interp_vals = np.interp(las_depth, depth_sorted, vals_sorted, left=null_val, right=null_val)
-                new_vals = interp_vals.astype(np.float32)
-
-            las_curve_data[name] = {"unit": meta.get("unit", ""), "values": new_vals}
-
     # Generate LAS file
-    las_content = write_las_simple(las_depth, las_curve_data, depth_unit)
+    las_content = write_las_simple(base_depth, curve_data, depth_unit)
 
     # Validate LAS output if possible
     validation = {
