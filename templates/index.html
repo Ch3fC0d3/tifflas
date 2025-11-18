@@ -156,6 +156,11 @@
             font-size: 0.85em;
             color: #555;
         }
+        .auto-corrected {
+            background-color: #fff3cd !important;
+            border-color: #ffc107 !important;
+            transition: background-color 0.3s ease;
+        }
         .label-overlay {
             position: absolute;
             width: 12px;
@@ -688,6 +693,42 @@
             }
         }
 
+        function syncCurveTypeToLabels(curveIndex) {
+            const typeEl = document.getElementById(`type${curveIndex}`);
+            const lasMnemonicEl = document.getElementById(`lasMnemonic${curveIndex}`);
+            const lasUnitEl = document.getElementById(`lasUnit${curveIndex}`);
+            if (!typeEl || !lasMnemonicEl || !lasUnitEl) return;
+
+            const typeVal = typeEl.value;
+            const defaults = curveTypeDefaults[typeVal] || {};
+            if (defaults.mnemonic) {
+                lasMnemonicEl.value = defaults.mnemonic;
+            }
+            if (defaults.unit) {
+                lasUnitEl.value = defaults.unit;
+            }
+        }
+
+        function applySuggestedType(curveIndex, suggestedType, isAutoFix = false) {
+            const typeEl = document.getElementById(`type${curveIndex}`);
+            if (!typeEl) return;
+            typeEl.value = suggestedType;
+            
+            // Visual indicator for auto-corrected fields
+            if (isAutoFix) {
+                typeEl.classList.add('auto-corrected');
+                setTimeout(() => {
+                    typeEl.classList.remove('auto-corrected');
+                }, 3000);
+            }
+            
+            syncCurveTypeToLabels(curveIndex);
+            // Don't call updateCurveScaleHints here if it's an auto-fix to avoid infinite loop
+            if (!isAutoFix) {
+                updateCurveScaleHints();
+            }
+        }
+
         function updateCurveScaleHints() {
             const numCurvesInput = document.getElementById('numCurves');
             const summaryEl = document.getElementById('curveScaleSummary');
@@ -699,7 +740,7 @@
             const typeRanges = [
                 { type: 'GR',   low: 0.0,   high: 200.0, label: 'GR (Gamma Ray, API)' },
                 { type: 'RHOB', low: 1.7,   high: 3.0,   label: 'RHOB (Density, g/cc)' },
-                { type: 'DT',   low: 40.0,  high: 200.0, label: 'DT/DTCO (Sonic,  s/ft)' },
+                { type: 'DT',   low: 40.0,  high: 200.0, label: 'DT/DTCO (Sonic, µs/ft)' },
                 { type: 'NPHI', low: 0.0,   high: 0.5,   label: 'NPHI (Neutron, v/v)' }
             ];
 
@@ -738,7 +779,7 @@
                 const leftVal = parseFloat(leftValEl.value);
                 const rightVal = parseFloat(rightValEl.value);
                 if (!Number.isFinite(leftVal) || !Number.isFinite(rightVal)) {
-                    hintEl.textContent = '';
+                    hintEl.innerHTML = '';
                     continue;
                 }
 
@@ -749,16 +790,20 @@
                 summaries.push({ index: i + 1, selectedType: typeVal, bestType });
 
                 if (!bestType) {
-                    hintEl.textContent = 'Scale does not clearly match GR/RHOB/DT/NPHI typical ranges.';
+                    hintEl.innerHTML = 'Scale does not clearly match GR/RHOB/DT/NPHI typical ranges.';
                     continue;
                 }
 
                 if (typeVal === bestType) {
-                    hintEl.textContent = `Scale looks consistent with ${describeType(bestType)}.`;
+                    hintEl.innerHTML = `✓ Scale looks consistent with ${describeType(bestType)}.`;
                 } else if (typeVal === 'OTHER' || !typeVal) {
-                    hintEl.textContent = `Scale looks like ${describeType(bestType)}; consider setting Curve type to ${bestType}.`;
+                    // Don't auto-fix OTHER, just suggest
+                    hintEl.innerHTML = `Scale looks like ${describeType(bestType)}; consider setting type to ${bestType}.`;
                 } else {
-                    hintEl.textContent = `Warning: selected type ${typeVal} but scale looks like ${describeType(bestType)}.`;
+                    // Auto-fix: type is set but clearly wrong based on scale
+                    hintEl.innerHTML = `Auto-corrected: was ${typeVal}, now ${bestType} (scale matched ${describeType(bestType)}).`;
+                    // Apply the fix automatically
+                    applySuggestedType(i, bestType, true);
                 }
             }
 
@@ -769,7 +814,7 @@
             if (grAsRhob.length && rhobAsGr.length) {
                 const a = grAsRhob[0].index;
                 const b = rhobAsGr[0].index;
-                swapMessage = `Possible swap: curve ${a} looks like RHOB while curve ${b} looks like GR based on scale ranges.`;
+                swapMessage = `⚠️ Possible swap: curve ${a} looks like RHOB while curve ${b} looks like GR based on scale ranges.`;
             }
 
             summaryEl.textContent = swapMessage;
@@ -873,7 +918,17 @@
                 const typeEl = document.getElementById(`type${i}`);
                 const leftValEl = document.getElementById(`leftVal${i}`);
                 const rightValEl = document.getElementById(`rightVal${i}`);
-                [typeEl, leftValEl, rightValEl].forEach((el) => {
+                
+                // #1: Auto-sync type changes to LAS mnemonic/unit
+                if (typeEl) {
+                    typeEl.addEventListener('change', () => {
+                        syncCurveTypeToLabels(i);
+                        updateCurveScaleHints();
+                    });
+                }
+                
+                // #3: Re-infer type when scale changes
+                [leftValEl, rightValEl].forEach((el) => {
                     if (el) {
                         el.addEventListener('change', updateCurveScaleHints);
                         el.addEventListener('input', updateCurveScaleHints);
