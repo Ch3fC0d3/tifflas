@@ -354,9 +354,16 @@ def call_hf_curve_analysis(ai_payload):
     }
 
     try:
-        resp = requests.post(url, headers=headers, json=data, timeout=30)
+        resp = requests.post(url, headers=headers, json=data, timeout=60)
         resp.raise_for_status()
         out = resp.json()
+    except requests.exceptions.Timeout:
+        print(f"HF API timeout - model may be loading")
+        return "⏳ AI model is loading (20-30 seconds on first request). Refresh and try again."
+    except requests.exceptions.HTTPError as exc:
+        print(f"HF API HTTP error: {exc}")
+        print(f"Response: {exc.response.text if exc.response else 'no response'}")
+        return None
     except Exception as exc:
         print(f"HF API error: {exc}")
         return None
@@ -368,9 +375,16 @@ def call_hf_curve_analysis(ai_payload):
             first = out[0]
             if isinstance(first, dict) and "generated_text" in first:
                 return str(first["generated_text"])
+        elif isinstance(out, dict):
+            if "generated_text" in out:
+                return str(out["generated_text"])
+            elif "error" in out:
+                print(f"HF API returned error: {out['error']}")
+                return f"⚠️ AI model error: {out['error']}"
         # Fallback: just stringify the response
-        return json.dumps(out)
-    except Exception:
+        return json.dumps(out, indent=2)
+    except Exception as exc:
+        print(f"Error parsing HF response: {exc}")
         return None
 
 
@@ -414,21 +428,36 @@ def call_hf_curve_chat(ai_payload, question):
     }
 
     try:
-        resp = requests.post(url, headers=headers, json=data, timeout=30)
+        resp = requests.post(url, headers=headers, json=data, timeout=60)
         resp.raise_for_status()
         out = resp.json()
+    except requests.exceptions.Timeout:
+        print(f"HF API timeout (chat) - model may be loading")
+        return "⏳ The AI model is loading (this can take 20-30 seconds on first request). Please try again in a moment."
+    except requests.exceptions.HTTPError as exc:
+        print(f"HF API HTTP error (chat): {exc}")
+        print(f"Response: {exc.response.text if exc.response else 'no response'}")
+        return f"AI API error: {exc.response.status_code if exc.response else 'unknown'}"
     except Exception as exc:
         print(f"HF API error (chat): {exc}")
-        return None
+        return f"AI request failed: {str(exc)}"
 
     try:
+        # Handle different response formats
         if isinstance(out, list) and out:
             first = out[0]
             if isinstance(first, dict) and "generated_text" in first:
                 return str(first["generated_text"])
-        return json.dumps(out)
-    except Exception:
-        return None
+        elif isinstance(out, dict):
+            if "generated_text" in out:
+                return str(out["generated_text"])
+            elif "error" in out:
+                print(f"HF API returned error: {out['error']}")
+                return f"AI model error: {out['error']}"
+        return json.dumps(out, indent=2)
+    except Exception as exc:
+        print(f"Error parsing HF response: {exc}")
+        return f"Error parsing AI response: {str(exc)}"
 def hsv_red_mask(hsv_img):
     lower1, upper1 = np.array([0, 80, 80]), np.array([10, 255, 255])
     lower2, upper2 = np.array([170, 80, 80]), np.array([180, 255, 255])
@@ -1319,8 +1348,9 @@ def ask_ai():
 
     answer = call_hf_curve_chat(ai_payload, question)
     if answer is None:
-        return jsonify({'success': False, 'error': 'AI chat is not configured or failed.'}), 500
-
+        return jsonify({'success': False, 'error': 'AI chat is not configured (missing HF_API_TOKEN or HF_MODEL_ID).'}), 500
+    
+    # If answer contains error message from HF API, still return success but show the error
     return jsonify({'success': True, 'answer': answer})
 
 if __name__ == '__main__':

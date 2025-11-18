@@ -1578,13 +1578,20 @@
                 return;
             }
 
+            // Check if we have ai_payload from a previous digitization
+            if (!window.lastAiPayload) {
+                output.innerHTML = '<p class="hint-text">⚠️ Please digitize a log first (click "Digitize & Download LAS") before asking AI questions.</p>';
+                showStatus('Please digitize a log first before using AI chat.', 'info');
+                return;
+            }
+
             try {
                 output.innerHTML = '<p class="hint-text">Asking AI...</p>';
                 const resp = await fetch('/ask_ai', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        ai_payload: window.lastAiPayload || null,
+                        ai_payload: window.lastAiPayload,
                         question: question
                     })
                 });
