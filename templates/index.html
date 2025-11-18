@@ -384,6 +384,13 @@
                 <div id="aiInsightContent" class="insight-card">
                     <p>Upload a log image to see Vision OCR suggestions here.</p>
                 </div>
+                <div class="insight-card" style="margin-top: 12px;">
+                    <h3>Ask AI about this log</h3>
+                    <p class="hint-text">The AI sees OCR text and LAS curve statistics for this image. You can ask things like "Which curve is GR vs DT?" or "Do any curves look unreasonable?"</p>
+                    <textarea id="aiChatQuestion" rows="3" style="width: 100%; margin-top: 6px;" placeholder="Type a question about the current log (after running Digitize)..."></textarea>
+                    <button type="button" class="btn" style="margin-top: 6px;" onclick="askAiAboutLog()">Ask AI</button>
+                    <div id="aiChatOutput" style="margin-top: 8px;"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -813,10 +820,8 @@
                     // Don't auto-fix OTHER, just suggest
                     hintEl.innerHTML = `Scale looks like ${describeType(bestType)}; consider setting type to ${bestType}.`;
                 } else {
-                    // Auto-fix: type is set but clearly wrong based on scale
-                    hintEl.innerHTML = `Auto-corrected: was ${typeVal}, now ${bestType} (scale matched ${describeType(bestType)}).`;
-                    // Apply the fix automatically
-                    applySuggestedType(i, bestType, true);
+                    // Warn but do not auto-change type; let the user decide
+                    hintEl.innerHTML = `⚠️ Warning: type is ${typeVal} but scale looks like ${describeType(bestType)}. <button type="button" class="btn" style="padding: 4px 8px; font-size: 0.8em; margin-left: 4px;" onclick="applySuggestedType(${i}, '${bestType}')">Fix: switch to ${bestType}</button>`;
                 }
             }
 
@@ -1058,7 +1063,38 @@
         }
 
         function findPhraseRegionInOcr(phrase) {
-            if (!detectedText || !detectedText.raw || !detectedText.raw.length || !phrase) {
+            const rawPhrase = (phrase || '').trim();
+            if (!rawPhrase) return null;
+
+            const normPhrase = rawPhrase.toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+            if (!normPhrase) return null;
+
+            // 1) Try AI label hints first (ocrSuggestions.curves.label_text / label_x / label_y)
+            if (ocrSuggestions && Array.isArray(ocrSuggestions.curves)) {
+                for (const hint of ocrSuggestions.curves) {
+                    const labelText = (hint.label_text || '').toUpperCase();
+                    const normLabel = labelText.replace(/[^A-Z0-9]+/g, ' ').trim();
+                    if (!normLabel) continue;
+                    if (normLabel.includes(normPhrase) || normPhrase.includes(normLabel)) {
+                        const x = Number(hint.label_x);
+                        const y = Number(hint.label_y);
+                        if (Number.isFinite(x) && Number.isFinite(y)) {
+                            // We only know a point; make a small box around it in image pixels
+                            const boxWidth = Math.max(50, imageWidth * 0.1);
+                            const boxHeight = Math.max(30, imageHeight * 0.03);
+                            return {
+                                x: Math.max(0, x - boxWidth / 2),
+                                y: Math.max(0, y - boxHeight / 2),
+                                width: boxWidth,
+                                height: boxHeight
+                            };
+                        }
+                    }
+                }
+            }
+
+            // 2) Fallback: search raw Vision tokens more flexibly
+            if (!detectedText || !detectedText.raw || !detectedText.raw.length) {
                 return null;
             }
 
@@ -1075,7 +1111,7 @@
 
             if (!tokens.length) return null;
 
-            const phraseTokens = phrase.toUpperCase().trim().split(/\s+/).filter(Boolean);
+            const phraseTokens = normPhrase.split(/\s+/).filter(Boolean);
             const n = phraseTokens.length;
             if (!n) return null;
 
@@ -1103,15 +1139,10 @@
 
             for (let i = 0; i <= tokens.length - n; i++) {
                 const windowTokens = tokens.slice(i, i + n);
-                const windowText = windowTokens.map((t) => t.text);
-                let match = true;
-                for (let j = 0; j < n; j++) {
-                    if (windowText[j] !== phraseTokens[j]) {
-                        match = false;
-                        break;
-                    }
-                }
-                if (match) {
+                const joined = windowTokens.map((t) => t.text).join(' ');
+                const normJoined = joined.replace(/[^A-Z0-9]+/g, ' ').trim();
+                if (!normJoined) continue;
+                if (normJoined === normPhrase || normJoined.includes(normPhrase) || normPhrase.includes(normJoined)) {
                     return combineVerts(windowTokens);
                 }
             }
@@ -1349,6 +1380,10 @@
                         clearCurveTraceOverlays();
                     }
 
+                    if (data.ai_payload) {
+                        window.lastAiPayload = data.ai_payload;
+                    }
+
                     if (data.ai_summary) {
                         const insightsStep = document.getElementById('insightsStep');
                         const panel = document.getElementById('aiInsightContent');
@@ -1384,6 +1419,38 @@
                 top: document.body.scrollHeight,
                 behavior: 'smooth'
             });
+        }
+
+        async function askAiAboutLog() {
+            const textarea = document.getElementById('aiChatQuestion');
+            const output = document.getElementById('aiChatOutput');
+            if (!textarea || !output) return;
+
+            const question = textarea.value.trim();
+            if (!question) {
+                showStatus('Please type a question for the AI about this log.', 'info');
+                return;
+            }
+
+            try {
+                output.innerHTML = '<p class="hint-text">Asking AI...</p>';
+                const resp = await fetch('/ask_ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ai_payload: window.lastAiPayload || null,
+                        question: question
+                    })
+                });
+                const data = await resp.json();
+                if (!data.success) {
+                    output.innerHTML = `<p class="hint-text">AI error: ${data.error || 'unknown error'}</p>`;
+                    return;
+                }
+                output.innerHTML = `<div class="hint-text" style="white-space: pre-wrap;">${data.answer}</div>`;
+            } catch (err) {
+                output.innerHTML = `<p class="hint-text">AI request failed: ${err.message}</p>`;
+            }
         }
 
         function parseLas(lasText) {

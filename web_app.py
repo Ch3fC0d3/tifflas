@@ -372,6 +372,63 @@ def call_hf_curve_analysis(ai_payload):
         return json.dumps(out)
     except Exception:
         return None
+
+
+def call_hf_curve_chat(ai_payload, question):
+    """Optional: chat-style helper to answer user questions about this log.
+
+    Reuses the same HF model but tailors the prompt to the specific question.
+    """
+    if not HF_API_TOKEN or not HF_MODEL_ID or not ai_payload or not question:
+        return None
+
+    url = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
+    headers = {
+        "Authorization": f"Bearer {HF_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    system_msg = (
+        "You are a petrophysics assistant. Given OCR text from a well log "
+        "image and numeric summaries of each LAS curve, answer the user's "
+        "question about which curves are likely GR, RHOB, NPHI, DT, RES, etc. "
+        "Comment on whether values and ranges look reasonable. Answer concisely "
+        "in markdown, and do not invent curves that are not present."
+    )
+
+    prompt = (
+        system_msg
+        + "\n\nHere is the JSON payload describing this log (OCR + LAS):\n\n"
+        + json.dumps(ai_payload, indent=2)
+        + "\n\nUser question:\n"
+        + question
+        + "\n\nAnswer in concise markdown."
+    )
+
+    data = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 512,
+            "temperature": 0.3,
+        },
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=data, timeout=30)
+        resp.raise_for_status()
+        out = resp.json()
+    except Exception as exc:
+        print(f"HF API error (chat): {exc}")
+        return None
+
+    try:
+        if isinstance(out, list) and out:
+            first = out[0]
+            if isinstance(first, dict) and "generated_text" in first:
+                return str(first["generated_text"])
+        return json.dumps(out)
+    except Exception:
+        return None
 def hsv_red_mask(hsv_img):
     lower1, upper1 = np.array([0, 80, 80]), np.array([10, 255, 255])
     lower2, upper2 = np.array([170, 80, 80]), np.array([180, 255, 255])
@@ -1225,6 +1282,28 @@ def health():
         'status': 'ok',
         'vision_api': VISION_API_AVAILABLE
     })
+
+
+@app.route('/ask_ai', methods=['POST'])
+def ask_ai():
+    """Chat-style endpoint: answer a question about the current log using ai_payload.
+
+    Expects JSON with:
+      - ai_payload: the object returned from /digitize
+      - question: user's natural language question
+    """
+    data = request.json or {}
+    ai_payload = data.get('ai_payload')
+    question = (data.get('question') or '').strip()
+
+    if not ai_payload or not question:
+        return jsonify({'success': False, 'error': 'Missing ai_payload or question.'}), 400
+
+    answer = call_hf_curve_chat(ai_payload, question)
+    if answer is None:
+        return jsonify({'success': False, 'error': 'AI chat is not configured or failed.'}), 500
+
+    return jsonify({'success': True, 'answer': answer})
 
 if __name__ == '__main__':
     # Create templates folder if it doesn't exist
