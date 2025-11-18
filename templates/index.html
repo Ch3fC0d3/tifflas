@@ -283,6 +283,14 @@
         let detectedText = null;
         let depthAnchorMode = null; // 'top' | 'bottom' | null
 
+        function setDepthAnchorMode(mode) {
+            if (mode === 'top' || mode === 'bottom') {
+                depthAnchorMode = mode;
+            } else {
+                depthAnchorMode = null;
+            }
+        }
+
         const curveTypeDefaults = {
             GR:   { mnemonic: 'GR',   unit: 'API' },
             RHOB: { mnemonic: 'RHOB', unit: 'G/CC' },
