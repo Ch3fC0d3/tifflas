@@ -156,6 +156,12 @@
             font-size: 0.85em;
             color: #555;
         }
+        .phrase-highlight {
+            position: absolute;
+            border: 2px solid #ef4444;
+            background: rgba(248, 113, 113, 0.25);
+            pointer-events: none;
+        }
         .auto-corrected {
             background-color: #fff3cd !important;
             border-color: #ffc107 !important;
@@ -309,6 +315,13 @@
                 <p style="color: #666; font-size: 0.85em; margin-top: 6px;">
                     Tip: Use <strong>Set top/bottom from image</strong> and then click on the depth scale in the image to anchor your depth.
                 </p>
+                <div class="form-group" style="margin-top: 10px; max-width: 420px;">
+                    <label for="phraseSearch">Jump to label (OCR)</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="phraseSearch" placeholder="e.g. GAMMA RAY" style="flex: 1;">
+                        <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="handlePhraseSearch()">Find</button>
+                    </div>
+                </div>
             </div>
 
             <!-- Step 3: Configuration -->
@@ -1035,6 +1048,75 @@
                 marker.title = parts.join(' → ');
                 overlay.appendChild(marker);
             });
+        }
+
+        function clearPhraseHighlight() {
+            const overlay = document.getElementById('overlay');
+            if (!overlay) return;
+            const boxes = overlay.querySelectorAll('.phrase-highlight');
+            boxes.forEach((el) => el.remove());
+        }
+
+        function findPhraseRegionInOcr(phrase) {
+            if (!detectedText || !detectedText.raw || !detectedText.raw.length || !phrase) {
+                return null;
+            }
+
+            const tokens = [];
+            for (const ann of detectedText.raw) {
+                const text = (ann.text || ann.description || '').trim();
+                const verts = ann.vertices || (ann.bounding_poly && ann.bounding_poly.vertices) || [];
+                if (!text || !verts || !verts.length) continue;
+                tokens.push({
+                    text: text.toUpperCase(),
+                    verts: verts.map((v) => ({ x: Number(v.x) || 0, y: Number(v.y) || 0 }))
+                });
+            }
+
+            if (!tokens.length) return null;
+
+            const phraseTokens = phrase.toUpperCase().trim().split(/\s+/).filter(Boolean);
+            const n = phraseTokens.length;
+            if (!n) return null;
+
+            function combineVerts(list) {
+                const xs = [];
+                const ys = [];
+                for (const t of list) {
+                    for (const p of t.verts) {
+                        xs.push(p.x);
+                        ys.push(p.y);
+                    }
+                }
+                if (!xs.length || !ys.length) return null;
+                const minX = Math.min(...xs);
+                const maxX = Math.max(...xs);
+                const minY = Math.min(...ys);
+                const maxY = Math.max(...ys);
+                return {
+                    x: minX,
+                    y: minY,
+                    width: maxX - minX,
+                    height: maxY - minY
+                };
+            }
+
+            for (let i = 0; i <= tokens.length - n; i++) {
+                const windowTokens = tokens.slice(i, i + n);
+                const windowText = windowTokens.map((t) => t.text);
+                let match = true;
+                for (let j = 0; j < n; j++) {
+                    if (windowText[j] !== phraseTokens[j]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    return combineVerts(windowTokens);
+                }
+            }
+
+            return null;
         }
 
         function clearCurveTraceOverlays() {
