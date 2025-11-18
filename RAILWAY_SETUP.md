@@ -18,8 +18,14 @@ GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
 ### 2. Hugging Face API (for AI Chat)
 ```
 HF_API_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-HF_MODEL_ID=meta-llama/Llama-3.2-3B-Instruct
+HF_MODEL_ID=google/flan-t5-base
 ```
+
+**Recommended Models** (from smallest/fastest to largest):
+- `google/flan-t5-base` - Fast, reliable, good for Railway (RECOMMENDED)
+- `mistralai/Mistral-7B-Instruct-v0.2` - Balanced performance
+- `meta-llama/Llama-3.2-3B-Instruct` - Good quality, slower
+- ❌ `tiiuae/falcon-7b-instruct` - Too large, causes 502 errors on Railway
 
 ## How to Set Environment Variables in Railway
 
