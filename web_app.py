@@ -23,6 +23,7 @@ from typing import Dict, List, Tuple
 import tempfile
 from datetime import datetime
 import requests
+import openai
 from huggingface_hub import InferenceClient
 
 # Try to import Google Vision API (optional)
@@ -86,6 +87,9 @@ CURVE_KEYWORDS = {
 
 HF_API_TOKEN = os.getenv("HF_API_TOKEN")
 HF_MODEL_ID = os.getenv("HF_MODEL_ID")
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL_ID = os.getenv("OPENAI_MODEL_ID") or os.getenv("OPENAI_MODEL")
 
 APP_VERSION = os.environ.get("APP_VERSION", "dev")
 APP_BUILD_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -323,13 +327,7 @@ def call_hf_curve_analysis(ai_payload):
 
     This is best-effort and will be skipped if credentials are not configured.
     """
-    if not HF_API_TOKEN or not HF_MODEL_ID or not ai_payload:
-        return None
-
-    try:
-        client = InferenceClient(provider="hf-inference", api_key=HF_API_TOKEN)
-    except Exception as exc:
-        print(f"HF InferenceClient init error (analysis): {exc}")
+    if not ai_payload:
         return None
 
     system_msg = (
@@ -346,8 +344,40 @@ def call_hf_curve_analysis(ai_payload):
         + json.dumps(ai_payload, indent=2)
     )
 
+    # Prefer OpenAI if configured
+    if OPENAI_API_KEY and OPENAI_MODEL_ID:
+        try:
+            openai.api_key = OPENAI_API_KEY
+            messages = [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": json.dumps(ai_payload, indent=2)},
+            ]
+            resp = openai.ChatCompletion.create(
+                model=OPENAI_MODEL_ID,
+                messages=messages,
+                max_tokens=512,
+                temperature=0.3,
+            )
+            choices = resp.get("choices") or []
+            if choices:
+                msg = choices[0].get("message") or {}
+                content = msg.get("content") or ""
+                if content:
+                    return str(content)
+        except Exception as exc:
+            print(f"OpenAI API error (analysis): {exc}")
+
+    # Fallback to Hugging Face Inference if available
+    if not HF_API_TOKEN or not HF_MODEL_ID:
+        return None
+
     try:
-        # Use HF InferenceClient text generation
+        client = InferenceClient(provider="hf-inference", api_key=HF_API_TOKEN)
+    except Exception as exc:
+        print(f"HF InferenceClient init error (analysis): {exc}")
+        return None
+
+    try:
         out = client.text_generation(
             prompt,
             model=HF_MODEL_ID,
@@ -358,7 +388,6 @@ def call_hf_curve_analysis(ai_payload):
         print(f"HF text_generation error (analysis): {exc}")
         return None
 
-    # InferenceClient typically returns a string; fallback to str() just in case
     return out if isinstance(out, str) else str(out)
 
 
@@ -367,13 +396,8 @@ def call_hf_curve_chat(ai_payload, question):
 
     Reuses the same HF model but tailors the prompt to the specific question.
     """
-    if not HF_API_TOKEN or not HF_MODEL_ID or not ai_payload or not question:
-        return None
-
-    try:
-        client = InferenceClient(provider="hf-inference", api_key=HF_API_TOKEN)
-    except Exception as exc:
-        print(f"HF InferenceClient init error (chat): {exc}")
+    question = (question or "").strip()
+    if not ai_payload or not question:
         return None
 
     system_msg = (
@@ -384,18 +408,49 @@ def call_hf_curve_chat(ai_payload, question):
         "in markdown, and do not invent curves that are not present."
     )
 
-    prompt = (
-        system_msg
-        + "\n\nHere is the JSON payload describing this log (OCR + LAS):\n\n"
+    payload_text = (
+        "Here is the JSON payload describing this log (OCR + LAS):\n\n"
         + json.dumps(ai_payload, indent=2)
         + "\n\nUser question:\n"
         + question
-        + "\n\nAnswer in concise markdown."
     )
+
+    # Prefer OpenAI if configured
+    if OPENAI_API_KEY and OPENAI_MODEL_ID:
+        try:
+            openai.api_key = OPENAI_API_KEY
+            messages = [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": payload_text},
+            ]
+            resp = openai.ChatCompletion.create(
+                model=OPENAI_MODEL_ID,
+                messages=messages,
+                max_tokens=512,
+                temperature=0.3,
+            )
+            choices = resp.get("choices") or []
+            if choices:
+                msg = choices[0].get("message") or {}
+                content = msg.get("content") or ""
+                if content:
+                    return str(content)
+        except Exception as exc:
+            print(f"OpenAI API error (chat): {exc}")
+
+    # Fallback to Hugging Face Inference if available
+    if not HF_API_TOKEN or not HF_MODEL_ID:
+        return None
+
+    try:
+        client = InferenceClient(provider="hf-inference", api_key=HF_API_TOKEN)
+    except Exception as exc:
+        print(f"HF InferenceClient init error (chat): {exc}")
+        return None
 
     try:
         out = client.text_generation(
-            prompt,
+            payload_text,
             model=HF_MODEL_ID,
             max_new_tokens=512,
             temperature=0.3,
@@ -1272,6 +1327,8 @@ def debug_env():
     return jsonify({
         'HF_API_TOKEN': 'set' if HF_API_TOKEN else 'missing',
         'HF_MODEL_ID': HF_MODEL_ID or 'missing',
+        'OPENAI_API_KEY': 'set' if OPENAI_API_KEY else 'missing',
+        'OPENAI_MODEL_ID': OPENAI_MODEL_ID or 'missing',
         'VISION_API_AVAILABLE': VISION_API_AVAILABLE,
         'GOOGLE_VISION_CREDENTIALS_JSON': 'set' if os.getenv('GOOGLE_VISION_CREDENTIALS_JSON') else 'missing',
         'GOOGLE_APPLICATION_CREDENTIALS': 'set' if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') else 'missing'
@@ -1281,10 +1338,42 @@ def debug_env():
 @app.route('/test-ai')
 def test_ai():
     """Test endpoint to verify Hugging Face API is working."""
+    # Prefer OpenAI if configured
+    if OPENAI_API_KEY and OPENAI_MODEL_ID:
+        try:
+            openai.api_key = OPENAI_API_KEY
+            resp = openai.ChatCompletion.create(
+                model=OPENAI_MODEL_ID,
+                messages=[
+                    {"role": "user", "content": "What is 2+2?"},
+                ],
+                max_tokens=50,
+                temperature=0.3,
+            )
+            choices = resp.get("choices") or []
+            content = ""
+            if choices:
+                msg = choices[0].get("message") or {}
+                content = msg.get("content") or ""
+            return jsonify({
+                'success': True,
+                'status_code': 200,
+                'provider': 'openai',
+                'model': OPENAI_MODEL_ID,
+                'response': content
+            })
+        except Exception as exc:
+            return jsonify({
+                'success': False,
+                'provider': 'openai',
+                'model': OPENAI_MODEL_ID,
+                'error': str(exc),
+            })
+
     if not HF_API_TOKEN or not HF_MODEL_ID:
         return jsonify({
             'success': False,
-            'error': 'HF_API_TOKEN or HF_MODEL_ID not configured',
+            'error': 'No AI provider configured (missing OpenAI or HF credentials).',
             'HF_API_TOKEN': 'set' if HF_API_TOKEN else 'missing',
             'HF_MODEL_ID': HF_MODEL_ID or 'missing'
         })
@@ -1308,12 +1397,14 @@ def test_ai():
         return jsonify({
             'success': True,
             'status_code': 200,
+            'provider': 'hf-inference',
             'model': HF_MODEL_ID,
             'response': out if isinstance(out, str) else str(out)
         })
     except Exception as exc:
         return jsonify({
             'success': False,
+            'provider': 'hf-inference',
             'error': str(exc),
             'model': HF_MODEL_ID
         })

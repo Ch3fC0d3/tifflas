@@ -15,17 +15,27 @@ GOOGLE_VISION_CREDENTIALS_JSON={"type":"service_account","project_id":"your-proj
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
 ```
 
-### 2. Hugging Face API (for AI Chat)
-```
-HF_API_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-HF_MODEL_ID=google/flan-t5-base
+### 2. AI Provider (Hugging Face or OpenAI)
+
+You can use **either** Hugging Face Inference **or** OpenAI as the AI backend.
+
+**Option A: OpenAI (recommended if you already have an OpenAI key)**
+
+```env
+OPENAI_API_KEY=sk-...your-key-here...
+OPENAI_MODEL_ID=gpt-3.5-turbo
 ```
 
-**Recommended Models** (from smallest/fastest to largest):
-- `google/flan-t5-base` - Fast, reliable, good for Railway (RECOMMENDED)
-- `mistralai/Mistral-7B-Instruct-v0.2` - Balanced performance
-- `meta-llama/Llama-3.2-3B-Instruct` - Good quality, slower
-- ❌ `tiiuae/falcon-7b-instruct` - Too large, causes 502 errors on Railway
+You can also use `gpt-4o-mini` or other chat-capable models if your account allows it.
+
+**Option B: Hugging Face Inference**
+
+```env
+HF_API_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+HF_MODEL_ID=meta-llama/Llama-3.2-3B-Instruct
+```
+
+Hugging Face support depends on your account and which models are available via the `hf-inference` provider.
 
 ## How to Set Environment Variables in Railway
 
