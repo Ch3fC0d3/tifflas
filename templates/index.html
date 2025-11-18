@@ -152,6 +152,25 @@
             padding: 6px 10px;
             font-size: 0.9em;
         }
+        .hint-text {
+            font-size: 0.85em;
+            color: #555;
+        }
+        .label-overlay {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid #ff9800;
+            background-color: rgba(255, 152, 0, 0.2);
+            pointer-events: auto;
+        }
+        .version-footer {
+            margin-top: 8px;
+            text-align: center;
+            font-size: 11px;
+            color: #aaa;
+        }
     </style>
 </head>
 <body>
@@ -251,12 +270,17 @@
         </div>
     </div>
 
+    <div class="version-footer">
+        <span>Version: {{ app_version }} • Build: {{ build_time }}</span>
+    </div>
+
     <script>
         let uploadedImage = null;
         let imageWidth = 0;
         let imageHeight = 0;
         let detectedTracks = [];
         let ocrSuggestions = null;
+        let detectedText = null;
         let depthAnchorMode = null; // 'top' | 'bottom' | null
 
         const curveTypeDefaults = {
@@ -356,9 +380,14 @@
                     imageHeight = data.height;
                     detectedTracks = data.tracks || [];
                     ocrSuggestions = data.ocr_suggestions || {};
-                    
+                    detectedText = data.detected_text || null;
+
                     // Show preview
-                    document.getElementById('imagePreview').src = data.image;
+                    const imgEl = document.getElementById('imagePreview');
+                    imgEl.onload = () => {
+                        renderLabelOverlays();
+                    };
+                    imgEl.src = data.image;
                     document.getElementById('imageDims').textContent = `${imageWidth} × ${imageHeight} pixels`;
                     document.getElementById('previewStep').classList.remove('hidden');
                     document.getElementById('configStep').classList.remove('hidden');
@@ -422,6 +451,8 @@
                     };
                 }
 
+                const recommendedMode = hint && hint.color_recommended_mode ? hint.color_recommended_mode : (i === 0 ? 'red' : 'black');
+
                 const curveDiv = document.createElement('div');
                 curveDiv.className = 'curve-config';
                 curveDiv.innerHTML = `
@@ -466,8 +497,8 @@
                         <div class="field">
                             <label for="mode${i}">Curve color / mode</label>
                             <select id="mode${i}">
-                                <option value="black">Black</option>
-                                <option value="red" ${i === 0 ? 'selected' : ''}>Red</option>
+                                <option value="black" ${recommendedMode === 'black' ? 'selected' : ''}>Black</option>
+                                <option value="red" ${recommendedMode === 'red' ? 'selected' : ''}>Red</option>
                             </select>
                         </div>
                         <div class="field">
@@ -534,6 +565,52 @@
             }
 
             return applied;
+        }
+
+        function clearLabelOverlays() {
+            const overlay = document.getElementById('overlay');
+            if (!overlay) return;
+            const markers = overlay.querySelectorAll('.label-overlay');
+            markers.forEach((el) => el.remove());
+        }
+
+        function renderLabelOverlays() {
+            const overlay = document.getElementById('overlay');
+            const img = document.getElementById('imagePreview');
+            if (!overlay || !img || !ocrSuggestions || !ocrSuggestions.curves || !ocrSuggestions.curves.length) {
+                clearLabelOverlays();
+                return;
+            }
+
+            const rect = img.getBoundingClientRect();
+            if (!rect.width || !rect.height || !imageWidth || !imageHeight) {
+                clearLabelOverlays();
+                return;
+            }
+
+            const scaleX = rect.width / imageWidth;
+            const scaleY = rect.height / imageHeight;
+
+            clearLabelOverlays();
+
+            ocrSuggestions.curves.forEach((hint) => {
+                if (hint.label_text == null || hint.label_x == null || hint.label_y == null) {
+                    return;
+                }
+                const x = hint.label_x * scaleX;
+                const y = hint.label_y * scaleY;
+                const marker = document.createElement('div');
+                marker.className = 'label-overlay';
+                marker.style.left = `${x - 6}px`;
+                marker.style.top = `${y - 6}px`;
+                const parts = [];
+                parts.push(`AI saw "${hint.label_text}" here`);
+                if (hint.label_mnemonic) {
+                    parts.push(`suggesting ${hint.label_mnemonic}`);
+                }
+                marker.title = parts.join(' → ');
+                overlay.appendChild(marker);
+            });
         }
 
         async function runDigitization() {
@@ -763,8 +840,12 @@
                             }
                             labelLine = `<br><span class="hint-text">AI saw ${parts.join(', ')} near this track.</span>`;
                         }
+                        let colorLine = '';
+                        if (hint.color_hint_text) {
+                            colorLine = `<br><span class="hint-text">${hint.color_hint_text}</span>`;
+                        }
 
-                        return `<li>${baseLine}${labelLine}</li>`;
+                        return `<li>${baseLine}${labelLine}${colorLine}</li>`;
                     })
                     .join('');
                 parts.push(`

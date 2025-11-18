@@ -21,6 +21,7 @@ from io import BytesIO, StringIO
 import base64
 from typing import Dict, List, Tuple
 import tempfile
+from datetime import datetime
 
 # Try to import Google Vision API (optional)
 VISION_API_AVAILABLE = False
@@ -70,6 +71,9 @@ CURVE_TYPE_DEFAULTS = {
     "CALI": {"mnemonic": "CALI", "unit": "IN"},
     "SP":   {"mnemonic": "SP",   "unit": "MV"},
 }
+
+APP_VERSION = os.environ.get("APP_VERSION", "dev")
+APP_BUILD_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
@@ -374,6 +378,7 @@ def attach_curve_label_hints(suggestions, raw_text):
             'type': label_type,
             'text': text,
             'x': x_center,
+            'y': y_center,
         })
 
     if not candidates:
@@ -406,6 +411,75 @@ def attach_curve_label_hints(suggestions, raw_text):
             curve['label_mnemonic'] = defaults.get('mnemonic', label_type)
             curve['label_unit'] = defaults.get('unit')
             curve['label_text'] = best['text']
+            curve['label_x'] = best.get('x')
+            curve['label_y'] = best.get('y')
+
+    return suggestions
+
+
+def attach_color_hints_to_ocr_curves(image_array, suggestions):
+    """Attach simple color-based hints to OCR curve suggestions.
+
+    For each suggested curve track, look at the underlying image region and
+    estimate whether it appears predominantly red or dark. This is used only
+    to provide hints / default mode suggestions; the user remains in control.
+    """
+    if not isinstance(suggestions, dict):
+        return suggestions
+
+    curves = suggestions.get('curves') or []
+    if not curves:
+        return suggestions
+
+    h, w = image_array.shape[:2]
+
+    for curve in curves:
+        left_px = curve.get('left_px')
+        right_px = curve.get('right_px')
+        if left_px is None or right_px is None:
+            continue
+
+        try:
+            left = int(left_px)
+            right = int(right_px)
+        except Exception:
+            continue
+
+        left = max(0, min(w - 1, left))
+        right = max(0, min(w, right))
+        if right <= left:
+            continue
+
+        roi = image_array[:, left:right]
+        if roi.size == 0:
+            continue
+
+        mean_color = roi.reshape(-1, 3).mean(axis=0)  # B, G, R
+        b, g, r = [float(c) for c in mean_color]
+
+        dominant = "mixed"
+        recommended_mode = "black"
+
+        if r > g * 1.2 and r > b * 1.2 and r > 60:
+            dominant = "red"
+            recommended_mode = "red"
+        elif max(b, g, r) < 80:
+            dominant = "dark"
+            recommended_mode = "black"
+        elif max(b, g, r) < 150:
+            dominant = "gray"
+            recommended_mode = "black"
+
+        if dominant == "red":
+            hint_text = "Track appears predominantly red; consider using Red mode for detection."
+        elif dominant in ("dark", "gray"):
+            hint_text = "Track appears mostly dark; Black mode is likely appropriate."
+        else:
+            hint_text = "Track color is mixed; choose Red/Black mode based on how the curve is drawn."
+
+        curve['color_dominant'] = dominant
+        curve['color_recommended_mode'] = recommended_mode
+        curve['color_hint_text'] = hint_text
 
     return suggestions
 
@@ -439,6 +513,10 @@ def compute_curve_outlier_warnings(curves_cfg, las_curve_data, null_val):
         vmin = float(np.nanmin(vals_valid))
         vmax = float(np.nanmax(vals_valid))
 
+        median = float(np.nanmedian(vals_valid))
+        std = float(np.nanstd(vals_valid))
+        null_pct = 100.0 * (1.0 - float(np.count_nonzero(valid_mask)) / float(vals.size))
+
         # Decide expected range based on curve type / mnemonic
         low, high = None, None
         if curve_type == 'GR' or mnemonic == 'GR':
@@ -457,9 +535,22 @@ def compute_curve_outlier_warnings(curves_cfg, las_curve_data, null_val):
         if vmax > high:
             issues.append(f"max {vmax:.2f} > {high}")
 
+        span = high - low
+        dyn_range = vmax - vmin
+        if span > 0 and dyn_range < 0.05 * span:
+            issues.append(f"curve is very flat (range {dyn_range:.2f})")
+
+        if null_pct > 40.0:
+            issues.append(f"{null_pct:.0f}% of samples are null")
+
         if issues:
             label = c.get('display_name') or mnemonic or curve_type or 'curve'
-            warnings.append(f"{label}: {', '.join(issues)} (expected roughly {low}–{high})")
+            summary = (
+                f"{label}: {', '.join(issues)} "
+                f"(min={vmin:.2f}, max={vmax:.2f}, median={median:.2f}, std={std:.2f}, null≈{null_pct:.0f}%). "
+                f"Expected roughly {low}–{high}."
+            )
+            warnings.append(summary)
 
     return warnings
 
@@ -493,7 +584,7 @@ def auto_detect_tracks(image_array):
 # ----------------------------
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', app_version=APP_VERSION, build_time=APP_BUILD_TIME)
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -521,11 +612,16 @@ def upload_file():
     
     # Auto-detect tracks
     tracks = auto_detect_tracks(img)
-    
+
     # Try OCR if available
     detected_text = {'raw': [], 'numbers': [], 'suggestions': {}}
+    ocr_suggestions = {}
     if VISION_API_AVAILABLE:
         detected_text = detect_text_vision_api(file_bytes)
+        ocr_suggestions = detected_text.get('suggestions', {}) or {}
+        if ocr_suggestions:
+            ocr_suggestions = attach_color_hints_to_ocr_curves(img, ocr_suggestions)
+            detected_text['suggestions'] = ocr_suggestions
 
     return jsonify({
         'success': True,
@@ -534,7 +630,7 @@ def upload_file():
         'height': h,
         'tracks': tracks,
         'detected_text': detected_text,
-        'ocr_suggestions': detected_text.get('suggestions', {}),
+        'ocr_suggestions': ocr_suggestions or detected_text.get('suggestions', {}),
         'vision_api_available': VISION_API_AVAILABLE and bool(detected_text.get('raw'))
     })
 
