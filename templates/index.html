@@ -749,7 +749,7 @@
             }
         }
 
-        function updateCurveScaleHints() {
+        function updateCurveScaleHints(autoApply) {
             const numCurvesInput = document.getElementById('numCurves');
             const summaryEl = document.getElementById('curveScaleSummary');
             const numCurves = numCurvesInput ? (parseInt(numCurvesInput.value) || 0) : 0;
@@ -765,14 +765,21 @@
             ];
 
             function inferType(minVal, maxVal) {
+                // Score by how much of the typical range is covered, to avoid
+                // everything looking like GR when the scale is very narrow
+                // (e.g. 1.95–2.95 should strongly prefer RHOB over GR).
                 let bestType = null;
-                let bestOverlap = 0;
+                let bestScore = 0;
                 for (const tr of typeRanges) {
                     const ovLow = Math.max(minVal, tr.low);
                     const ovHigh = Math.min(maxVal, tr.high);
                     const overlap = ovHigh - ovLow;
-                    if (overlap > 0 && overlap > bestOverlap) {
-                        bestOverlap = overlap;
+                    if (overlap <= 0) continue;
+                    const span = tr.high - tr.low;
+                    const coverage = span > 0 ? (overlap / span) : 0;
+                    const score = coverage;
+                    if (score > bestScore) {
+                        bestScore = score;
                         bestType = tr.type;
                     }
                 }
@@ -814,14 +821,25 @@
                     continue;
                 }
 
+                const autoFix = !!autoApply;
+
                 if (typeVal === bestType) {
                     hintEl.innerHTML = `✓ Scale looks consistent with ${describeType(bestType)}.`;
                 } else if (typeVal === 'OTHER' || !typeVal) {
-                    // Don't auto-fix OTHER, just suggest
-                    hintEl.innerHTML = `Scale looks like ${describeType(bestType)}; consider setting type to ${bestType}.`;
+                    if (autoFix) {
+                        applySuggestedType(i, bestType, true);
+                        hintEl.innerHTML = `Auto-selected ${describeType(bestType)} based on scale.`;
+                    } else {
+                        hintEl.innerHTML = `Scale looks like ${describeType(bestType)}; consider setting type to ${bestType}.`;
+                    }
                 } else {
-                    // Warn but do not auto-change type; let the user decide
-                    hintEl.innerHTML = `⚠️ Warning: type is ${typeVal} but scale looks like ${describeType(bestType)}. <button type="button" class="btn" style="padding: 4px 8px; font-size: 0.8em; margin-left: 4px;" onclick="applySuggestedType(${i}, '${bestType}')">Fix: switch to ${bestType}</button>`;
+                    if (autoFix) {
+                        applySuggestedType(i, bestType, true);
+                        hintEl.innerHTML = `Auto-corrected: was ${typeVal}, now ${bestType} (scale matched ${describeType(bestType)}).`;
+                    } else {
+                        // Warn but do not auto-change type; let the user decide
+                        hintEl.innerHTML = `⚠️ Warning: type is ${typeVal} but scale looks like ${describeType(bestType)}. <button type="button" class="btn" style="padding: 4px 8px; font-size: 0.8em; margin-left: 4px;" onclick="applySuggestedType(${i}, '${bestType}')">Fix: switch to ${bestType}</button>`;
+                    }
                 }
             }
 
@@ -966,7 +984,10 @@
                     }
                 });
             }
-            updateCurveScaleHints();
+            // One-time auto-application of inferred types right after fields
+            // are generated, so the AI guess fills the dropdowns, but later
+            // edits only show warnings and a Fix button.
+            updateCurveScaleHints(true);
         }
 
         function applyOcrSuggestions() {
@@ -1432,6 +1453,118 @@
                 top: document.body.scrollHeight,
                 behavior: 'smooth'
             });
+        }
+
+        function handlePhraseSearch() {
+            const input = document.getElementById('phraseSearch');
+            if (!input) return;
+            
+            const phrase = input.value.trim().toLowerCase();
+            if (!phrase) {
+                showStatus('Please enter a label to search for.', 'info');
+                return;
+            }
+
+            if (!detectedText || !detectedText.textAnnotations || detectedText.textAnnotations.length === 0) {
+                showStatus('No OCR text available. Please upload an image first.', 'info');
+                return;
+            }
+
+            // Search through OCR annotations for matching text
+            let bestMatch = null;
+            let bestScore = 0;
+
+            for (const annotation of detectedText.textAnnotations) {
+                if (!annotation.description || !annotation.boundingPoly || !annotation.boundingPoly.vertices) {
+                    continue;
+                }
+
+                const text = annotation.description.toLowerCase();
+                
+                // Exact match
+                if (text === phrase) {
+                    bestMatch = annotation;
+                    break;
+                }
+
+                // Partial match scoring
+                if (text.includes(phrase) || phrase.includes(text)) {
+                    const score = Math.min(text.length, phrase.length) / Math.max(text.length, phrase.length);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMatch = annotation;
+                    }
+                }
+            }
+
+            if (!bestMatch) {
+                showStatus(`Label "${phrase}" not found in OCR text.`, 'info');
+                return;
+            }
+
+            // Calculate center of bounding box
+            const vertices = bestMatch.boundingPoly.vertices;
+            const centerX = vertices.reduce((sum, v) => sum + (v.x || 0), 0) / vertices.length;
+            const centerY = vertices.reduce((sum, v) => sum + (v.y || 0), 0) / vertices.length;
+
+            // Scroll to and highlight the label
+            const img = document.getElementById('imagePreview');
+            const overlay = document.getElementById('overlay');
+            
+            if (!img || !overlay) {
+                showStatus('Image preview not available.', 'info');
+                return;
+            }
+
+            // Calculate scale factor
+            const scaleX = img.clientWidth / imageWidth;
+            const scaleY = img.clientHeight / imageHeight;
+
+            // Scroll to the label
+            const imgRect = img.getBoundingClientRect();
+            const scrollX = imgRect.left + (centerX * scaleX) - window.innerWidth / 2;
+            const scrollY = imgRect.top + (centerY * scaleY) - window.innerHeight / 2;
+
+            window.scrollTo({
+                left: scrollX + window.scrollX,
+                top: scrollY + window.scrollY,
+                behavior: 'smooth'
+            });
+
+            // Highlight the label
+            const existingHighlight = document.getElementById('ocrHighlight');
+            if (existingHighlight) {
+                existingHighlight.remove();
+            }
+
+            const highlight = document.createElement('div');
+            highlight.id = 'ocrHighlight';
+            highlight.style.position = 'absolute';
+            highlight.style.border = '3px solid yellow';
+            highlight.style.backgroundColor = 'rgba(255, 255, 0, 0.2)';
+            highlight.style.pointerEvents = 'none';
+            highlight.style.zIndex = '1000';
+
+            const minX = Math.min(...vertices.map(v => v.x || 0));
+            const minY = Math.min(...vertices.map(v => v.y || 0));
+            const maxX = Math.max(...vertices.map(v => v.x || 0));
+            const maxY = Math.max(...vertices.map(v => v.y || 0));
+
+            highlight.style.left = `${minX * scaleX}px`;
+            highlight.style.top = `${minY * scaleY}px`;
+            highlight.style.width = `${(maxX - minX) * scaleX}px`;
+            highlight.style.height = `${(maxY - minY) * scaleY}px`;
+
+            overlay.appendChild(highlight);
+
+            // Remove highlight after 3 seconds
+            setTimeout(() => {
+                if (highlight.parentNode) {
+                    highlight.remove();
+                }
+            }, 3000);
+
+            showStatus(`Found "${bestMatch.description}" at pixel (${Math.round(centerX)}, ${Math.round(centerY)})`, 'success');
         }
 
         async function askAiAboutLog() {

@@ -1038,6 +1038,12 @@ def auto_detect_tracks(image_array):
 def index():
     return render_template('index.html', app_version=APP_VERSION, build_time=APP_BUILD_TIME)
 
+
+@app.route('/favicon.ico')
+def favicon():
+    """Return empty response for favicon to prevent 404 errors."""
+    return '', 204
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """Handle file upload and return image info"""
