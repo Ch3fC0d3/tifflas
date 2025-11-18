@@ -22,6 +22,7 @@ import base64
 from typing import Dict, List, Tuple
 import tempfile
 from datetime import datetime
+import requests
 
 # Try to import Google Vision API (optional)
 VISION_API_AVAILABLE = False
@@ -72,6 +73,19 @@ CURVE_TYPE_DEFAULTS = {
     "SP":   {"mnemonic": "SP",   "unit": "MV"},
 }
 
+MISSING_MARKERS = [-999.25, -999.0, -9999.0, 999.25]
+
+CURVE_KEYWORDS = {
+    "GR":   ["GR", "GAMMA RAY"],
+    "RES":  ["RES", "RESISTIVITY", "ILD", "LLD", "LWD RES"],
+    "RHOB": ["RHOB", "DENSITY", "RHO B", "BULK DENSITY"],
+    "NPHI": ["NPHI", "NEUTRON POROSITY", "NEUT", "PHI N"],
+    "PEF":  ["PEF", "PHOTOELECTRIC", "PE"],
+}
+
+HF_API_TOKEN = os.getenv("HF_API_TOKEN")
+HF_MODEL_ID = os.getenv("HF_MODEL_ID")
+
 APP_VERSION = os.environ.get("APP_VERSION", "dev")
 APP_BUILD_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -81,6 +95,283 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 # ----------------------------
 # Core Processing Functions
 # ----------------------------
+def clean_values(values):
+    """Replace common missing markers with NaN."""
+    arr = np.array(values, dtype=float)
+    for m in MISSING_MARKERS:
+        arr[arr == m] = np.nan
+    return arr
+
+
+def compute_curve_features(depth, curve_values, curve_name):
+    """Compute simple numeric features for a curve to help AI reason about it."""
+    values = clean_values(curve_values)
+    valid_mask = ~np.isnan(values)
+    v = values[valid_mask]
+
+    features = {
+        "curve": curve_name,
+        "num_samples": int(len(values)),
+        "num_valid": int(valid_mask.sum()),
+    }
+
+    if len(values) == 0:
+        features["pct_missing"] = None
+        return features
+
+    features["pct_missing"] = float(100.0 * (1.0 - valid_mask.mean()))
+
+    if len(v) == 0:
+        return features
+
+    # Basic stats
+    features.update({
+        "min": float(np.nanmin(v)),
+        "max": float(np.nanmax(v)),
+        "mean": float(np.nanmean(v)),
+        "std": float(np.nanstd(v)),
+        "p5": float(np.nanpercentile(v, 5)),
+        "p95": float(np.nanpercentile(v, 95)),
+    })
+
+    # Gradient stats (change per unit depth)
+    try:
+        depth_arr = np.asarray(depth, dtype=float)
+        depth_valid = depth_arr[valid_mask]
+        d_depth = np.diff(depth_valid)
+        d_vals = np.diff(v)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            grad = d_vals / d_depth
+        grad = grad[~np.isnan(grad) & ~np.isinf(grad)]
+        if grad.size > 0:
+            features.update({
+                "grad_mean": float(np.mean(grad)),
+                "grad_std": float(np.std(grad)),
+                "grad_p95": float(np.percentile(grad, 95)),
+            })
+    except Exception:
+        pass
+
+    # Very simple spike detection via z-score
+    if v.std() > 0:
+        z = (v - v.mean()) / v.std()
+        spike_threshold = 4.0
+        spikes = np.abs(z) > spike_threshold
+        features.update({
+            "pct_spikes": float(100.0 * spikes.mean()),
+            "num_spikes": int(spikes.sum()),
+        })
+    else:
+        features.update({
+            "pct_spikes": 0.0,
+            "num_spikes": 0,
+        })
+
+    # Longest run of consecutive missing samples
+    longest_missing = 0
+    current = 0
+    for is_valid in valid_mask:
+        if not is_valid:
+            current += 1
+            longest_missing = max(longest_missing, current)
+        else:
+            current = 0
+
+    features["max_consecutive_missing"] = int(longest_missing)
+
+    return features
+
+
+def summarize_las_curves_from_str(las_text, depth_mnemonics=("DEPT", "DEPTH")):
+    """Read LAS content from a string and compute features for each non-depth curve."""
+    if not LASIO_AVAILABLE:
+        return None
+
+    try:
+        las = lasio.read(StringIO(las_text))
+    except Exception as exc:
+        print(f"LAS summary: failed to parse LAS content: {exc}")
+        return None
+
+    depth_curve = None
+    for c in las.curves:
+        if c.mnemonic.upper() in [d.upper() for d in depth_mnemonics]:
+            depth_curve = c
+            break
+
+    if depth_curve is None:
+        return None
+
+    depth = depth_curve.data
+    all_features = []
+
+    for curve in las.curves:
+        if curve is depth_curve:
+            continue
+        f = compute_curve_features(depth, curve.data, curve.mnemonic)
+        all_features.append(f)
+
+    return {
+        "well_info": {
+            "start_depth": float(depth[0]),
+            "end_depth": float(depth[-1]),
+            "num_samples": int(len(depth)),
+        },
+        "curve_features": all_features,
+    }
+
+
+def extract_curve_labels_from_text(full_text: str):
+    """Use simple keyword matching over OCR text to find which curves appear on the image."""
+    if not full_text:
+        return []
+    text_upper = full_text.upper()
+    found = set()
+    for mnemo, keywords in CURVE_KEYWORDS.items():
+        for kw in keywords:
+            if kw in text_upper:
+                found.add(mnemo)
+                break
+    return sorted(found)
+
+
+def match_vision_to_las_curves(vision_labels, las_curve_mnemonics):
+    """Map OCR-detected labels (GR/RHOB/NPHI/RES, etc.) to LAS mnemonics.
+
+    Uses exact match first, then prefix/contains matching.
+    """
+    if not vision_labels or not las_curve_mnemonics:
+        return {}
+
+    las_upper = {m.upper(): m for m in las_curve_mnemonics}
+    mapping = {}
+
+    # 1) exact matches
+    for label in vision_labels:
+        lu = label.upper()
+        if lu in las_upper:
+            mapping[label] = las_upper[lu]
+
+    # 2) heuristic prefix/contains for remaining
+    for label in vision_labels:
+        if label in mapping:
+            continue
+        lu = label.upper()
+        candidates = [
+            m for m in las_curve_mnemonics
+            if m.upper().startswith(lu) or lu in m.upper()
+        ]
+        mapping[label] = candidates[0] if candidates else None
+
+    return mapping
+
+
+def build_ai_analysis_payload(las_text, detected_text):
+    """Build a structured payload combining OCR text + LAS summary + simple mapping."""
+    if not las_text:
+        return None
+
+    # 1) OCR text from Vision
+    full_text = ""
+    if isinstance(detected_text, str):
+        full_text = detected_text
+    elif isinstance(detected_text, dict):
+        raw_entries = detected_text.get("raw") or []
+        texts = [
+            (entry.get("text") or "")
+            for entry in raw_entries
+            if isinstance(entry, dict) and entry.get("text")
+        ]
+        full_text = "\n".join(texts)
+
+    vision_curve_labels = extract_curve_labels_from_text(full_text)
+
+    # 2) LAS numeric features
+    las_summary = summarize_las_curves_from_str(las_text)
+    las_curve_mnemonics = []
+    if las_summary and las_summary.get("curve_features"):
+        las_curve_mnemonics = [cf["curve"] for cf in las_summary["curve_features"]]
+
+    # 3) Map Vision labels to LAS mnemonics
+    vision_to_las = match_vision_to_las_curves(vision_curve_labels, las_curve_mnemonics)
+
+    # Optional: basic flags from features
+    if las_summary and las_summary.get("curve_features"):
+        for cf in las_summary["curve_features"]:
+            cf_flags = []
+            pct_missing = cf.get("pct_missing") or 0.0
+            pct_spikes = cf.get("pct_spikes") or 0.0
+            if pct_missing > 30.0:
+                cf_flags.append("high_missing")
+            if pct_spikes > 5.0:
+                cf_flags.append("spiky")
+            cf["flags"] = cf_flags
+
+    payload = {
+        "ocr_text": full_text,
+        "vision_curve_labels": vision_curve_labels,
+        "vision_to_las_mapping": vision_to_las,
+        "las_summary": las_summary,
+    }
+
+    return payload
+
+
+def call_hf_curve_analysis(ai_payload):
+    """Optional: call a Hugging Face text model to get a human-readable curve analysis.
+
+    This is best-effort and will be skipped if credentials are not configured.
+    """
+    if not HF_API_TOKEN or not HF_MODEL_ID or not ai_payload:
+        return None
+
+    url = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
+    headers = {
+        "Authorization": f"Bearer {HF_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    system_msg = (
+        "You are a petrophysics assistant. Given OCR text from a well log "
+        "image and numeric summaries of each LAS curve, identify which LAS "
+        "curves are likely GR, RHOB, NPHI, DT, RES, etc. Be concise and "
+        "return a short markdown summary listing each LAS curve with its "
+        "most likely identity and any obvious issues (missing data, spikes)."
+    )
+
+    prompt = (
+        system_msg
+        + "\n\nHere is the JSON payload to analyze:\n\n"
+        + json.dumps(ai_payload, indent=2)
+    )
+
+    data = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 512,
+            "temperature": 0.3,
+        },
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=data, timeout=30)
+        resp.raise_for_status()
+        out = resp.json()
+    except Exception as exc:
+        print(f"HF API error: {exc}")
+        return None
+
+    # The Inference API for text-generation typically returns a list of
+    # dicts with a 'generated_text' field.
+    try:
+        if isinstance(out, list) and out:
+            first = out[0]
+            if isinstance(first, dict) and "generated_text" in first:
+                return str(first["generated_text"])
+        # Fallback: just stringify the response
+        return json.dumps(out)
+    except Exception:
+        return None
 def hsv_red_mask(hsv_img):
     lower1, upper1 = np.array([0, 80, 80]), np.array([10, 255, 255])
     lower2, upper2 = np.array([170, 80, 80]), np.array([180, 255, 255])
@@ -751,6 +1042,7 @@ def digitize():
     
     # Extract config
     cfg = data['config']
+    detected_text = data.get('detected_text') or {}
     depth_cfg = cfg['depth']
     curves = (cfg['curves'] or [])[:6]
     gopt = cfg.get('global_options', {})
@@ -910,7 +1202,11 @@ def digitize():
                 'passed': False,
                 'message': f'LAS validation failed: {exc}'
             }
-    
+
+    # Build AI analysis payload (OCR + LAS stats) and optionally call Hugging Face
+    ai_payload = build_ai_analysis_payload(las_content, detected_text)
+    ai_summary = call_hf_curve_analysis(ai_payload) if ai_payload else None
+
     return jsonify({
         'success': True,
         'las_content': las_content,
@@ -918,7 +1214,9 @@ def digitize():
         'validation': validation,
         'outlier_warnings': outlier_warnings,
         'depth_warnings': depth_warnings,
-        'curve_traces': curve_traces
+        'curve_traces': curve_traces,
+        'ai_payload': ai_payload,
+        'ai_summary': ai_summary
     })
 
 @app.route('/health')

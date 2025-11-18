@@ -1217,7 +1217,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         image: uploadedImage,
-                        config: config
+                        config: config,
+                        detected_text: detectedText || null
                     })
                 });
 
@@ -1264,6 +1265,20 @@
                         renderCurveTraceOverlays(data.curve_traces);
                     } else {
                         clearCurveTraceOverlays();
+                    }
+
+                    if (data.ai_summary) {
+                        const insightsStep = document.getElementById('insightsStep');
+                        const panel = document.getElementById('aiInsightContent');
+                        insightsStep.classList.remove('hidden');
+                        const existing = panel.innerHTML || '';
+                        const aiBlock = `
+                            <div class="insight-block">
+                                <h3>AI Curve Analysis (Hugging Face)</h3>
+                                <div class="hint-text" style="white-space: pre-wrap;">${data.ai_summary}</div>
+                            </div>
+                        `;
+                        panel.innerHTML = existing + aiBlock;
                     }
 
                     showStatus(message, statusType);
