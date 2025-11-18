@@ -1290,6 +1290,18 @@ def health():
     })
 
 
+@app.route('/debug-env')
+def debug_env():
+    """Debug endpoint to check environment variable configuration."""
+    return jsonify({
+        'HF_API_TOKEN': 'set' if HF_API_TOKEN else 'missing',
+        'HF_MODEL_ID': HF_MODEL_ID or 'missing',
+        'VISION_API_AVAILABLE': VISION_API_AVAILABLE,
+        'GOOGLE_VISION_CREDENTIALS_JSON': 'set' if os.getenv('GOOGLE_VISION_CREDENTIALS_JSON') else 'missing',
+        'GOOGLE_APPLICATION_CREDENTIALS': 'set' if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') else 'missing'
+    })
+
+
 @app.route('/ask_ai', methods=['POST'])
 def ask_ai():
     """Chat-style endpoint: answer a question about the current log using ai_payload.

@@ -1466,7 +1466,7 @@
             }
 
             if (!detectedText || !detectedText.textAnnotations || detectedText.textAnnotations.length === 0) {
-                showStatus('No OCR text available. Please upload an image first.', 'info');
+                showStatus('⚠️ OCR not available. Google Vision API credentials need to be configured on the server.', 'info');
                 return;
             }
 
