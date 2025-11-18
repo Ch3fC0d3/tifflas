@@ -408,6 +408,11 @@
         let detectedText = null;
         let depthAnchorMode = null; // 'top' | 'bottom' | null
 
+        // OCR phrase search state (Jump to label)
+        let ocrSearchMatches = [];
+        let ocrSearchIndex = -1;
+        let ocrSearchPhrase = '';
+
         const DEPTH_SESSION_KEY = 'tifflas_depth_config_v1';
         const INTRO_SESSION_KEY = 'tifflas_intro_seen_v1';
 
@@ -1455,72 +1460,27 @@
             });
         }
 
-        function handlePhraseSearch() {
-            const input = document.getElementById('phraseSearch');
-            if (!input) return;
-            
-            const phrase = input.value.trim().toLowerCase();
-            if (!phrase) {
-                showStatus('Please enter a label to search for.', 'info');
-                return;
-            }
+        function jumpToOcrMatch(index) {
+            if (!ocrSearchMatches || !ocrSearchMatches.length) return;
+            if (index < 0 || index >= ocrSearchMatches.length) return;
 
-            if (!detectedText || !detectedText.raw || detectedText.raw.length === 0) {
-                showStatus('⚠️ OCR not available. Google Vision API credentials need to be configured on the server.', 'info');
-                return;
-            }
+            const match = ocrSearchMatches[index];
+            const vertices = match.vertices;
 
-            // Search through OCR annotations for matching text
-            let bestMatch = null;
-            let bestScore = 0;
-
-            for (const annotation of detectedText.raw) {
-                if (!annotation.text || !annotation.vertices) {
-                    continue;
-                }
-
-                const text = annotation.text.toLowerCase();
-                
-                // Exact match
-                if (text === phrase) {
-                    bestMatch = annotation;
-                    break;
-                }
-
-                // Partial match scoring
-                if (text.includes(phrase) || phrase.includes(text)) {
-                    const score = Math.min(text.length, phrase.length) / Math.max(text.length, phrase.length);
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestMatch = annotation;
-                    }
-                }
-            }
-
-            if (!bestMatch) {
-                showStatus(`Label "${phrase}" not found in OCR text.`, 'info');
-                return;
-            }
-
-            // Calculate center of bounding box
-            const vertices = bestMatch.vertices;
-            const centerX = vertices.reduce((sum, v) => sum + (v.x || 0), 0) / vertices.length;
-            const centerY = vertices.reduce((sum, v) => sum + (v.y || 0), 0) / vertices.length;
-
-            // Scroll to and highlight the label
             const img = document.getElementById('imagePreview');
             const overlay = document.getElementById('overlay');
-            
-            if (!img || !overlay) {
+
+            if (!img || !overlay || !imageWidth || !imageHeight) {
                 showStatus('Image preview not available.', 'info');
                 return;
             }
 
-            // Calculate scale factor
+            const centerX = vertices.reduce((sum, v) => sum + (v.x || 0), 0) / vertices.length;
+            const centerY = vertices.reduce((sum, v) => sum + (v.y || 0), 0) / vertices.length;
+
             const scaleX = img.clientWidth / imageWidth;
             const scaleY = img.clientHeight / imageHeight;
 
-            // Scroll to the label
             const imgRect = img.getBoundingClientRect();
             const scrollX = imgRect.left + (centerX * scaleX) - window.innerWidth / 2;
             const scrollY = imgRect.top + (centerY * scaleY) - window.innerHeight / 2;
@@ -1531,7 +1491,6 @@
                 behavior: 'smooth'
             });
 
-            // Highlight the label
             const existingHighlight = document.getElementById('ocrHighlight');
             if (existingHighlight) {
                 existingHighlight.remove();
@@ -1564,7 +1523,67 @@
                 }
             }, 3000);
 
-            showStatus(`Found "${bestMatch.description}" at pixel (${Math.round(centerX)}, ${Math.round(centerY)})`, 'success');
+            const labelText = match.text || '';
+            showStatus(`Found "${labelText}" (${index + 1} of ${ocrSearchMatches.length}) at pixel (${Math.round(centerX)}, ${Math.round(centerY)})`, 'success');
+        }
+
+        function handlePhraseSearch() {
+            const input = document.getElementById('phraseSearch');
+            if (!input) return;
+            
+            const phrase = input.value.trim().toLowerCase();
+            if (!phrase) {
+                showStatus('Please enter a label to search for.', 'info');
+                return;
+            }
+
+            if (!detectedText || !detectedText.raw || detectedText.raw.length === 0) {
+                showStatus('⚠️ OCR not available. Google Vision API credentials need to be configured on the server.', 'info');
+                return;
+            }
+
+            const matches = [];
+            for (const annotation of detectedText.raw) {
+                if (!annotation.text || !annotation.vertices) {
+                    continue;
+                }
+                const text = annotation.text.toLowerCase();
+
+                if (text.includes(phrase) || phrase.includes(text)) {
+                    matches.push(annotation);
+                }
+            }
+
+            if (!matches.length) {
+                ocrSearchMatches = [];
+                ocrSearchIndex = -1;
+                ocrSearchPhrase = phrase;
+                showStatus(`Label "${phrase}" not found in OCR text.`, 'info');
+                return;
+            }
+
+            ocrSearchMatches = matches;
+            ocrSearchPhrase = phrase;
+            ocrSearchIndex = 0;
+            jumpToOcrMatch(ocrSearchIndex);
+        }
+
+        const phraseSearchInput = document.getElementById('phraseSearch');
+        if (phraseSearchInput) {
+            phraseSearchInput.addEventListener('keydown', function (event) {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    if (!ocrSearchMatches || !ocrSearchMatches.length) {
+                        return;
+                    }
+                    event.preventDefault();
+                    if (event.key === 'ArrowDown') {
+                        ocrSearchIndex = (ocrSearchIndex + 1) % ocrSearchMatches.length;
+                    } else {
+                        ocrSearchIndex = (ocrSearchIndex - 1 + ocrSearchMatches.length) % ocrSearchMatches.length;
+                    }
+                    jumpToOcrMatch(ocrSearchIndex);
+                }
+            });
         }
 
         async function askAiAboutLog() {
