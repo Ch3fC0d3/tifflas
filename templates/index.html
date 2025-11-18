@@ -202,6 +202,9 @@
                 <p style="color: #666; margin-top: 10px;">
                     📐 Image dimensions: <span id="imageDims"></span>
                 </p>
+                <p id="mousePixelReadout" style="color: #666; font-size: 0.85em; margin-top: 4px;">
+                    Mouse pixel: (move over image)
+                </p>
                 <p style="color: #666; font-size: 0.85em; margin-top: 6px;">
                     Tip: Use <strong>Set top/bottom from image</strong> and then click on the depth scale in the image to anchor your depth.
                 </p>
@@ -328,6 +331,37 @@
 
         // Depth anchor click handling on image
         const imagePreview = document.getElementById('imagePreview');
+        const mousePixelReadout = document.getElementById('mousePixelReadout');
+
+        imagePreview.addEventListener('mousemove', (event) => {
+            if (!mousePixelReadout || !imageWidth || !imageHeight) return;
+
+            const rect = imagePreview.getBoundingClientRect();
+            if (!rect.width || !rect.height) return;
+
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const xNorm = x / rect.width;
+            const yNorm = y / rect.height;
+            const xImg = Math.round(xNorm * (imageWidth - 1));
+            const yImg = Math.round(yNorm * (imageHeight - 1));
+
+            let suffix = '';
+            if (depthAnchorMode === 'top') {
+                suffix = ' • anchoring TOP';
+            } else if (depthAnchorMode === 'bottom') {
+                suffix = ' • anchoring BOTTOM';
+            }
+
+            mousePixelReadout.textContent = `Mouse pixel: X=${xImg}, Y=${yImg}${suffix}`;
+        });
+
+        imagePreview.addEventListener('mouseleave', () => {
+            if (mousePixelReadout) {
+                mousePixelReadout.textContent = 'Mouse pixel: (move over image)';
+            }
+        });
+
         imagePreview.addEventListener('click', (event) => {
             if (!depthAnchorMode) return;
 
