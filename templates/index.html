@@ -13,6 +13,7 @@
             min-height: 100vh;
             padding: 20px;
         }
+
         .container {
             max-width: 1200px;
             margin: 0 auto;
@@ -182,6 +183,9 @@
                 <p style="color: #666; margin-top: 10px;">
                     📐 Image dimensions: <span id="imageDims"></span>
                 </p>
+                <p style="color: #666; font-size: 0.85em; margin-top: 6px;">
+                    Tip: Use <strong>Set top/bottom from image</strong> and then click on the depth scale in the image to anchor your depth.
+                </p>
             </div>
 
             <!-- Step 3: Configuration -->
@@ -190,6 +194,10 @@
                 
                 <div class="form-group">
                     <label>Depth Configuration</label>
+                    <div class="curve-checkboxes" style="margin-top: 8px; margin-bottom: 8px;">
+                        <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="setDepthAnchorMode('top')">Set top from image</button>
+                        <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="setDepthAnchorMode('bottom')">Set bottom from image</button>
+                    </div>
                     <div class="grid">
                         <div class="field">
                             <label for="topPx">Top pixel (Y)</label>
@@ -249,6 +257,17 @@
         let imageHeight = 0;
         let detectedTracks = [];
         let ocrSuggestions = null;
+        let depthAnchorMode = null; // 'top' | 'bottom' | null
+
+        const curveTypeDefaults = {
+            GR:   { mnemonic: 'GR',   unit: 'API' },
+            RHOB: { mnemonic: 'RHOB', unit: 'G/CC' },
+            NPHI: { mnemonic: 'NPHI', unit: 'V/V' },
+            DT:   { mnemonic: 'DTC',  unit: 'US/F' },
+            DTC:  { mnemonic: 'DTC',  unit: 'US/F' },
+            CALI: { mnemonic: 'CALI', unit: 'IN' },
+            SP:   { mnemonic: 'SP',   unit: 'MV' }
+        };
 
         // Upload handling
         const uploadArea = document.getElementById('uploadArea');
@@ -273,6 +292,41 @@
             if (e.target.files.length) {
                 handleFile(e.target.files[0]);
             }
+        });
+
+        // Depth anchor click handling on image
+        const imagePreview = document.getElementById('imagePreview');
+        imagePreview.addEventListener('click', (event) => {
+            if (!depthAnchorMode) return;
+
+            const rect = imagePreview.getBoundingClientRect();
+            const y = event.clientY - rect.top; // pixel in displayed image
+            const yNorm = y / rect.height;      // 0..1
+            const yImg = Math.round(yNorm * (imageHeight - 1));
+
+            if (depthAnchorMode === 'top') {
+                const topPxInput = document.getElementById('topPx');
+                topPxInput.value = yImg;
+                const existing = document.getElementById('topDepth').value;
+                if (!existing) {
+                    const depthVal = window.prompt('Enter top depth value for this point (same unit as selected):');
+                    if (depthVal !== null && depthVal !== '') {
+                        document.getElementById('topDepth').value = depthVal;
+                    }
+                }
+            } else if (depthAnchorMode === 'bottom') {
+                const bottomPxInput = document.getElementById('bottomPx');
+                bottomPxInput.value = yImg;
+                const existing = document.getElementById('bottomDepth').value;
+                if (!existing) {
+                    const depthVal = window.prompt('Enter bottom depth value for this point (same unit as selected):');
+                    if (depthVal !== null && depthVal !== '') {
+                        document.getElementById('bottomDepth').value = depthVal;
+                    }
+                }
+            }
+
+            depthAnchorMode = null;
         });
 
         async function handleFile(file) {
@@ -345,8 +399,9 @@
             const container = document.getElementById('curvesContainer');
             container.innerHTML = '';
 
-            const curveNames = ['GR', 'RHOB', 'NPHI', 'DT', 'CALI', 'SP', 'RES', 'PERM'];
-            const curveUnits = ['API', 'g/cc', 'v/v', 'us/ft', 'in', 'mV', 'ohmm', 'mD'];
+            const curveTypes = ['GR', 'RHOB', 'NPHI', 'DT', 'CALI', 'SP'];
+            const displayNames = ['GR', 'RHOB', 'NPHI', 'DT', 'CALI', 'SP', 'RES', 'PERM'];
+            const displayUnits = ['API', 'g/cc', 'v/v', 'us/ft', 'in', 'mV', 'ohmm', 'mD'];
 
             for (let i = 0; i < numCurves; i++) {
                 const track = (tracks && tracks[i]) || (detectedTracks && detectedTracks[i]) || null;
@@ -354,18 +409,43 @@
                 const leftPx = track ? track[0] : hint ? Math.round(hint.left_px) : Math.floor(imageWidth * (0.1 + i * 0.8 / numCurves));
                 const rightPx = track ? track[1] : hint ? Math.round(hint.right_px) : Math.floor(imageWidth * (0.1 + (i + 1) * 0.8 / numCurves));
 
+                // Use OCR label hint as the initial curve type when available
+                const hintedType = hint && hint.label_type ? hint.label_type : null;
+                const defaultType = hintedType || curveTypes[i] || 'GR';
+
+                // Build defaults for LAS mnemonic/unit: start from type defaults, then let OCR override
+                let defaults = curveTypeDefaults[defaultType] || { mnemonic: defaultType, unit: '' };
+                if (hint && hint.label_mnemonic) {
+                    defaults = {
+                        mnemonic: hint.label_mnemonic,
+                        unit: hint.label_unit || defaults.unit || ''
+                    };
+                }
+
                 const curveDiv = document.createElement('div');
                 curveDiv.className = 'curve-config';
                 curveDiv.innerHTML = `
                     <h3>Curve ${i + 1}</h3>
                     <div class="grid">
                         <div class="field">
-                            <label for="name${i}">Curve name</label>
-                            <input type="text" id="name${i}" placeholder="Name" value="${curveNames[i] || 'CURVE' + (i + 1)}">
+                            <label for="type${i}">Curve type</label>
+                            <select id="type${i}">
+                                <option value="GR" ${defaultType === 'GR' ? 'selected' : ''}>GR (Gamma Ray)</option>
+                                <option value="RHOB" ${defaultType === 'RHOB' ? 'selected' : ''}>RHOB (Density)</option>
+                                <option value="NPHI" ${defaultType === 'NPHI' ? 'selected' : ''}>NPHI (Neutron)</option>
+                                <option value="DT" ${defaultType === 'DT' ? 'selected' : ''}>DT / DTC (Sonic)</option>
+                                <option value="CALI" ${defaultType === 'CALI' ? 'selected' : ''}>CALI (Caliper)</option>
+                                <option value="SP" ${defaultType === 'SP' ? 'selected' : ''}>SP (Spontaneous Potential)</option>
+                                <option value="OTHER" ${(defaultType !== 'GR' && defaultType !== 'RHOB' && defaultType !== 'NPHI' && defaultType !== 'DT' && defaultType !== 'CALI' && defaultType !== 'SP') ? 'selected' : ''}>Other</option>
+                            </select>
                         </div>
                         <div class="field">
-                            <label for="unit${i}">Curve unit</label>
-                            <input type="text" id="unit${i}" placeholder="Unit" value="${curveUnits[i] || ''}">
+                            <label for="name${i}">Display name (optional)</label>
+                            <input type="text" id="name${i}" placeholder="Label shown in app" value="${displayNames[i] || 'CURVE' + (i + 1)}">
+                        </div>
+                        <div class="field">
+                            <label for="unit${i}">Display unit (optional)</label>
+                            <input type="text" id="unit${i}" placeholder="Display unit" value="${displayUnits[i] || ''}">
                         </div>
                         <div class="field">
                             <label for="leftPx${i}">Left pixel (X)</label>
@@ -389,6 +469,13 @@
                                 <option value="black">Black</option>
                                 <option value="red" ${i === 0 ? 'selected' : ''}>Red</option>
                             </select>
+                        </div>
+                        <div class="field">
+                            <label>Advanced LAS label (optional)</label>
+                            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;">
+                                <input type="text" id="lasMnemonic${i}" placeholder="LAS mnemonic (e.g. GR, DTC)" value="${defaults.mnemonic}">
+                                <input type="text" id="lasUnit${i}" placeholder="LAS unit (e.g. API, G/CC)" value="${defaults.unit}">
+                            </div>
                         </div>
                     </div>
                 `;
@@ -475,9 +562,24 @@
 
             const numCurves = parseInt(document.getElementById('numCurves').value);
             for (let i = 0; i < numCurves; i++) {
+                const type = document.getElementById(`type${i}`).value;
+                const displayName = document.getElementById(`name${i}`).value;
+                const displayUnit = document.getElementById(`unit${i}`).value;
+                const lasMnemonicInput = document.getElementById(`lasMnemonic${i}`).value.trim();
+                const lasUnitInput = document.getElementById(`lasUnit${i}`).value.trim();
+
+                const defaults = curveTypeDefaults[type] || {};
+                const lasMnemonic = lasMnemonicInput || (defaults.mnemonic || (displayName ? displayName.toUpperCase() : `CURVE${i + 1}`));
+                const lasUnit = lasUnitInput || (defaults.unit || displayUnit);
+
                 config.curves.push({
-                    name: document.getElementById(`name${i}`).value,
-                    unit: document.getElementById(`unit${i}`).value,
+                    type: type,
+                    display_name: displayName,
+                    display_unit: displayUnit,
+                    name: lasMnemonic,
+                    unit: lasUnit,
+                    las_mnemonic: lasMnemonic,
+                    las_unit: lasUnit,
                     left_px: parseInt(document.getElementById(`leftPx${i}`).value),
                     right_px: parseInt(document.getElementById(`rightPx${i}`).value),
                     left_value: parseFloat(document.getElementById(`leftVal${i}`).value),
@@ -508,13 +610,26 @@
                     a.click();
                     URL.revokeObjectURL(url);
 
+                    let statusType = 'success';
+                    let message;
                     if (data.validation && data.validation.passed) {
-                        showStatus(`✅ LAS file downloaded. ${data.validation.message}`, 'success');
+                        message = `✅ LAS file downloaded. ${data.validation.message}`;
                     } else if (data.validation) {
-                        showStatus(`⚠️ LAS saved, but validation reported: ${data.validation.message}`, 'info');
+                        statusType = 'info';
+                        message = `⚠️ LAS saved, but validation reported: ${data.validation.message}`;
                     } else {
-                        showStatus('✅ Success! LAS file downloaded.', 'success');
+                        message = '✅ Success! LAS file downloaded.';
                     }
+
+                    if (data.outlier_warnings && data.outlier_warnings.length) {
+                        const joined = data.outlier_warnings.join(' | ');
+                        message += ` ⚠️ Curve sanity warnings: ${joined}`;
+                        if (statusType === 'success') {
+                            statusType = 'info';
+                        }
+                    }
+
+                    showStatus(message, statusType);
                 } else {
                     showStatus('❌ Error during digitization', 'error');
                 }
@@ -629,12 +744,28 @@
             if (ocrSuggestions.curves && ocrSuggestions.curves.length) {
                 const list = ocrSuggestions.curves
                     .slice(0, 6)
-                    .map((hint, idx) => `
-                        <li>
-                            Curve ${idx + 1}: pixels ${Math.round(hint.left_px)} → ${Math.round(hint.right_px)}
-                            ${hint.sample_value !== undefined ? `(sample value ≈ ${hint.sample_value.toFixed(2)})` : ''}
-                        </li>
-                    `)
+                    .map((hint, idx) => {
+                        const baseLine = `Curve ${idx + 1}: pixels ${Math.round(hint.left_px)} → ${Math.round(hint.right_px)}${
+                            hint.sample_value !== undefined ? ` (sample value ≈ ${hint.sample_value.toFixed(2)})` : ''
+                        }`;
+
+                        let labelLine = '';
+                        if (hint.label_type || hint.label_mnemonic || hint.label_text) {
+                            const parts = [];
+                            if (hint.label_type) {
+                                parts.push(`type <strong>${hint.label_type}</strong>`);
+                            }
+                            if (hint.label_mnemonic && hint.label_mnemonic !== hint.label_type) {
+                                parts.push(`mnemonic <strong>${hint.label_mnemonic}</strong>`);
+                            }
+                            if (hint.label_text) {
+                                parts.push(`text "${hint.label_text}"`);
+                            }
+                            labelLine = `<br><span class="hint-text">AI saw ${parts.join(', ')} near this track.</span>`;
+                        }
+
+                        return `<li>${baseLine}${labelLine}</li>`;
+                    })
                     .join('');
                 parts.push(`
                     <div class="insight-block">

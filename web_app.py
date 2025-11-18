@@ -56,8 +56,20 @@ LASIO_AVAILABLE = False
 try:
     import lasio
     LASIO_AVAILABLE = True
-except ImportError:
-    print("ℹ️  lasio not installed; LAS validation will be skipped.")
+    print("✅ lasio imported; LAS validation enabled.")
+except Exception as e:
+    print(f"ℹ️  lasio unavailable; LAS validation will be skipped: {e}")
+
+# Default LAS curve label mapping by type (kept in sync with frontend curveTypeDefaults)
+CURVE_TYPE_DEFAULTS = {
+    "GR":   {"mnemonic": "GR",   "unit": "API"},
+    "RHOB": {"mnemonic": "RHOB", "unit": "G/CC"},
+    "NPHI": {"mnemonic": "NPHI", "unit": "V/V"},
+    "DT":   {"mnemonic": "DTC",  "unit": "US/F"},
+    "DTC":  {"mnemonic": "DTC",  "unit": "US/F"},
+    "CALI": {"mnemonic": "CALI", "unit": "IN"},
+    "SP":   {"mnemonic": "SP",   "unit": "MV"},
+}
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
@@ -215,6 +227,7 @@ def detect_text_vision_api(image_bytes):
                     continue
 
         suggestions = build_ocr_suggestions(numeric_entries)
+        suggestions = attach_curve_label_hints(suggestions, raw_text)
 
         return {
             'raw': raw_text,
@@ -288,6 +301,168 @@ def build_ocr_suggestions(numeric_entries):
         suggestions['curves'] = curve_hint
 
     return suggestions
+
+
+def attach_curve_label_hints(suggestions, raw_text):
+    """Attach curve label/type hints to OCR suggestions using nearby text.
+
+    This does NOT auto-apply anything. It only adds optional fields like
+    label_type/label_mnemonic/label_text to the curve hint objects so the
+    frontend can show them as suggestions.
+    """
+    if not suggestions or not raw_text:
+        return suggestions
+
+    curves = suggestions.get('curves') or []
+    if not curves:
+        return suggestions
+
+    # Estimate a "header band" (top portion of the image) from text bounding boxes
+    y_centers_all = []
+    for entry in raw_text:
+        verts = entry.get('vertices') or []
+        ys_all = [v.get('y') for v in verts if isinstance(v, dict) and 'y' in v]
+        if ys_all:
+            y_centers_all.append(float(sum(ys_all)) / len(ys_all))
+
+    if not y_centers_all:
+        return suggestions
+
+    min_y = min(y_centers_all)
+    max_y = max(y_centers_all)
+    header_threshold = min_y + 0.3 * (max_y - min_y)  # top ~30% of text as header band
+
+    # Build candidate labels from raw text restricted to the header band
+    candidates = []
+    for entry in raw_text:
+        text = (entry.get('text') or '').strip()
+        if not text:
+            continue
+        label_upper = text.upper()
+
+        label_type = None
+        if 'GAMMA' in label_upper or label_upper.startswith('GR'):
+            label_type = 'GR'
+        elif 'RHOB' in label_upper or 'RHO' in label_upper or 'DENS' in label_upper:
+            label_type = 'RHOB'
+        elif 'NPHI' in label_upper or 'NEUTRON' in label_upper:
+            label_type = 'NPHI'
+        elif 'DTC' in label_upper or 'DT ' in label_upper or label_upper.startswith('DT') or 'SONIC' in label_upper:
+            label_type = 'DT'
+        elif 'CALI' in label_upper or 'CALIPER' in label_upper:
+            label_type = 'CALI'
+        elif label_upper == 'SP' or 'SPONTANEOUS' in label_upper:
+            label_type = 'SP'
+
+        if not label_type:
+            continue
+
+        verts = entry.get('vertices') or []
+        xs = [v.get('x') for v in verts if isinstance(v, dict) and 'x' in v]
+        ys = [v.get('y') for v in verts if isinstance(v, dict) and 'y' in v]
+        if not xs or not ys:
+            continue
+
+        y_center = float(sum(ys)) / len(ys)
+        if y_center > header_threshold:
+            # Skip labels that are not in the header band above the tracks
+            continue
+
+        x_center = float(sum(xs)) / len(xs)
+
+        candidates.append({
+            'type': label_type,
+            'text': text,
+            'x': x_center,
+        })
+
+    if not candidates:
+        return suggestions
+
+    # Associate candidate labels with each curve by horizontal proximity
+    for curve in curves:
+        left_px = curve.get('left_px')
+        right_px = curve.get('right_px')
+        if left_px is None or right_px is None:
+            continue
+
+        track_center = 0.5 * (left_px + right_px)
+        best = None
+        best_dist = None
+        margin = (right_px - left_px) * 0.5 + 30  # allow some slack
+
+        for cand in candidates:
+            dx = cand['x'] - track_center
+            if abs(dx) > margin:
+                continue
+            if best is None or abs(dx) < best_dist:
+                best = cand
+                best_dist = abs(dx)
+
+        if best is not None:
+            label_type = best['type']
+            defaults = CURVE_TYPE_DEFAULTS.get(label_type, {})
+            curve['label_type'] = label_type
+            curve['label_mnemonic'] = defaults.get('mnemonic', label_type)
+            curve['label_unit'] = defaults.get('unit')
+            curve['label_text'] = best['text']
+
+    return suggestions
+
+
+def compute_curve_outlier_warnings(curves_cfg, las_curve_data, null_val):
+    """Simple range-based sanity checks for GR/RHOB/DT curves.
+
+    This does not block LAS generation; it only returns human-readable
+    warning strings that the frontend can display alongside status.
+    """
+    warnings = []
+    if not curves_cfg or not las_curve_data:
+        return warnings
+
+    for c in curves_cfg:
+        curve_type = (c.get('type') or '').upper()
+        mnemonic = (c.get('las_mnemonic') or c.get('name') or '').upper()
+        if not mnemonic or mnemonic not in las_curve_data:
+            continue
+
+        meta = las_curve_data.get(mnemonic) or {}
+        vals = np.asarray(meta.get("values"), dtype=np.float32)
+        if vals.size == 0:
+            continue
+
+        valid_mask = vals != null_val
+        if not np.any(valid_mask):
+            continue
+
+        vals_valid = vals[valid_mask]
+        vmin = float(np.nanmin(vals_valid))
+        vmax = float(np.nanmax(vals_valid))
+
+        # Decide expected range based on curve type / mnemonic
+        low, high = None, None
+        if curve_type == 'GR' or mnemonic == 'GR':
+            low, high = 0.0, 300.0  # API units
+        elif curve_type == 'RHOB' or mnemonic == 'RHOB':
+            low, high = 1.7, 3.0    # g/cc
+        elif curve_type in ('DT', 'DTC') or mnemonic in ('DT', 'DTC'):
+            low, high = 40.0, 200.0 # us/ft
+
+        if low is None or high is None:
+            continue
+
+        issues = []
+        if vmin < low:
+            issues.append(f"min {vmin:.2f} < {low}")
+        if vmax > high:
+            issues.append(f"max {vmax:.2f} > {high}")
+
+        if issues:
+            label = c.get('display_name') or mnemonic or curve_type or 'curve'
+            warnings.append(f"{label}: {', '.join(issues)} (expected roughly {low}–{high})")
+
+    return warnings
+
 
 def auto_detect_tracks(image_array):
     """Auto-detect track boundaries"""
@@ -399,8 +574,9 @@ def digitize():
     curve_data = {}
     
     for c in curves:
-        name = c['name']
-        unit = c.get('unit', '')
+        # LAS-facing name/unit come from las_mnemonic/las_unit (or name/unit as fallback)
+        name = c.get('las_mnemonic') or c.get('name')
+        unit = c.get('las_unit') or c.get('unit', '')
         left_px = int(c['left_px'])
         right_px = int(c['right_px'])
         left_value = float(c['left_value'])
@@ -465,6 +641,9 @@ def digitize():
 
             las_curve_data[name] = {"unit": meta.get("unit", ""), "values": new_vals}
 
+    # Run simple curve sanity checks (outlier warnings) on the final LAS depth grid
+    outlier_warnings = compute_curve_outlier_warnings(curves, las_curve_data, null_val)
+
     # Generate LAS file
     las_content = write_las_simple(las_depth, las_curve_data, depth_unit)
 
@@ -490,7 +669,8 @@ def digitize():
         'success': True,
         'las_content': las_content,
         'filename': 'digitized_log.las',
-        'validation': validation
+        'validation': validation,
+        'outlier_warnings': outlier_warnings
     })
 
 @app.route('/health')
