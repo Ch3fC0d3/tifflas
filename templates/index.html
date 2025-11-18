@@ -240,15 +240,18 @@
         <div class="intro-modal">
             <button type="button" class="intro-modal-close" onclick="closeIntroModal()" aria-label="Close">×</button>
             <h2>Welcome to TIFF→LAS Digitizer</h2>
-            <p>This tool converts well log images (TIFF/PNG/JPG) into LAS files. The AI suggests defaults, but you stay in control.</p>
+            <p>This tool converts well log images (TIFF/PNG/JPG) into QuickSyn-style LAS 1.2 files. The AI suggests defaults, but you stay in control.</p>
             <ol>
                 <li><strong>Upload image:</strong> Drop or choose your log in Step 1. The preview appears in Step 2.</li>
                 <li><strong>Depth setup:</strong> Use <em>Set top/bottom from image</em> and click on the depth scale on the image. The AI snaps to nearby depth labels and fills pixels and depth values.</li>
                 <li><strong>Curves:</strong> In Step 3, pick curve types, left/right pixels, and scale values. AI uses track detection, color, and OCR labels to prefill suggestions, but you can edit everything.</li>
-                <li><strong>Digitize:</strong> Click <em>Digitize &amp; Download LAS</em>. The app generates LAS, runs basic checks, and shows depth/curve sanity warnings so you can review before using the file.</li>
+                <li><strong>Digitize:</strong> Click <em>Digitize &amp; Download LAS</em>. The app generates a QuickSyn-compatible LAS file (with 0.5 ft sampling when depth unit is Feet), runs basic checks, and shows depth/curve sanity warnings so you can review before using the file. For QuickSyn workflows, leave depth unit as <em>Feet (FT)</em>.</li>
                 <li><strong>Review AI hints:</strong> Step 4 shows what the AI saw (e.g. header text like "SONIC DT" and sample values) to help you judge if its guesses make sense.</li>
             </ol>
             <p style="font-size: 0.85em; color: #555;">Tip: The AI never overwrites your choices. Treat suggestions as starting points, especially for depth anchors and curve labels.</p>
+            <p style="font-size: 0.85em; color: #555; margin-top: 4px;">More details (QuickSyn expectations, examples, troubleshooting):
+                <a href="https://github.com/Ch3fC0d3/tifflas#readme" target="_blank" rel="noopener noreferrer">see the full README on GitHub</a>.
+            </p>
             <div class="intro-modal-actions">
                 <button type="button" class="btn" style="padding: 8px 16px; font-size: 0.9em;" onclick="closeIntroModal()">Got it</button>
             </div>
