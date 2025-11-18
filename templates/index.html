@@ -866,7 +866,20 @@
                     };
                 }
 
-                const recommendedMode = hint && hint.color_recommended_mode ? hint.color_recommended_mode : (i === 0 ? 'red' : 'black');
+                // Decide default curve color:
+                //  1) Use image-based color hint if available (blue/green/red/dark).
+                //  2) Otherwise, fall back to a sensible guess from curve type
+                //     so key curves like GR/DT get green/blue by default.
+                let recommendedMode = hint && hint.color_recommended_mode ? hint.color_recommended_mode : null;
+                if (!recommendedMode) {
+                    if (defaultType === 'DT') {
+                        recommendedMode = 'blue';
+                    } else if (defaultType === 'GR') {
+                        recommendedMode = 'green';
+                    } else {
+                        recommendedMode = (i === 0 ? 'red' : 'black');
+                    }
+                }
 
                 const curveDiv = document.createElement('div');
                 curveDiv.className = 'curve-config';
