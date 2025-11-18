@@ -751,6 +751,7 @@ def digitize():
     }, H)
     
     curve_data = {}
+    curve_traces = {}
     
     for c in curves:
         # LAS-facing name/unit come from las_mnemonic/las_unit (or name/unit as fallback)
@@ -777,17 +778,48 @@ def digitize():
         kernel = np.ones((3, 3), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, 1)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, 1)
-        
+
+        # Suppress strong vertical grid lines that appear in most rows, so we
+        # favor the wiggly curve trace over perfectly vertical grid strokes.
+        try:
+            h_mask, w_mask = mask.shape
+            if h_mask > 0 and w_mask > 0:
+                col_hits = (mask > 0).sum(axis=0)
+                # Columns that are active in a large fraction of rows are
+                # likely grid lines rather than the curve itself.
+                threshold = max(10, int(0.7 * h_mask))
+                grid_cols = col_hits >= threshold
+                if np.any(grid_cols):
+                    mask[:, grid_cols] = 0
+        except Exception:
+            # If anything goes wrong, fall back to the original mask
+            pass
+
         xs = pick_curve_x_per_row(mask, min_run)
         xs = smooth_nanmedian(xs, smooth_window)
-        
+
         width_px = mask.shape[1]
         vals = np.full(xs.shape, np.nan, dtype=np.float32)
         valid = ~np.isnan(xs)
         vals[valid] = left_value + (xs[valid] / max(1, width_px-1)) * (right_value - left_value)
-        
+
         vals_out = np.where(np.isnan(vals), null_val, vals).astype(np.float32)
         curve_data[name] = {'unit': unit, 'values': vals_out}
+
+        # Build a sparse set of trace points in original image coordinates for UI overlay
+        trace_points = []
+        if xs.size > 0:
+            # Sample at most ~600 points per curve to keep payload small
+            step = max(1, int(np.ceil(xs.size / 600)))
+            for row_idx in range(0, xs.size, step):
+                x_val = xs[row_idx]
+                if np.isnan(x_val):
+                    continue
+                x_img = int(left_px + x_val)
+                y_img = int(top + row_idx)
+                trace_points.append([x_img, y_img])
+
+        curve_traces[name] = trace_points
     
     # Resample to fixed 0.5 ft step when using feet
     las_depth = base_depth
@@ -850,7 +882,8 @@ def digitize():
         'filename': 'digitized_log.las',
         'validation': validation,
         'outlier_warnings': outlier_warnings,
-        'depth_warnings': depth_warnings
+        'depth_warnings': depth_warnings,
+        'curve_traces': curve_traces
     })
 
 @app.route('/health')
