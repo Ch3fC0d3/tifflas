@@ -23,6 +23,7 @@ from typing import Dict, List, Tuple
 import tempfile
 from datetime import datetime
 import requests
+from huggingface_hub import InferenceClient
 
 # Try to import Google Vision API (optional)
 VISION_API_AVAILABLE = False
@@ -325,12 +326,11 @@ def call_hf_curve_analysis(ai_payload):
     if not HF_API_TOKEN or not HF_MODEL_ID or not ai_payload:
         return None
 
-    # Use new Hugging Face router-based inference endpoint
-    url = "https://router.huggingface.co/hf-inference"
-    headers = {
-        "Authorization": f"Bearer {HF_API_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    try:
+        client = InferenceClient(provider="hf-inference", api_key=HF_API_TOKEN)
+    except Exception as exc:
+        print(f"HF InferenceClient init error (analysis): {exc}")
+        return None
 
     system_msg = (
         "You are a petrophysics assistant. Given OCR text from a well log "
@@ -346,56 +346,20 @@ def call_hf_curve_analysis(ai_payload):
         + json.dumps(ai_payload, indent=2)
     )
 
-    data = {
-        "model": HF_MODEL_ID,
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 512,
-            "temperature": 0.3,
-        },
-    }
-
     try:
-        resp = requests.post(url, headers=headers, json=data, timeout=60)
-        resp.raise_for_status()
-        out = resp.json()
-    except requests.exceptions.Timeout:
-        print(f"HF API timeout - model may be loading")
-        return "⏳ AI model is loading (20-30 seconds on first request). Refresh and try again."
-    except requests.exceptions.HTTPError as exc:
-        print(f"HF API HTTP error: {exc}")
-        if exc.response:
-            print(f"Status: {exc.response.status_code}")
-            print(f"Response: {exc.response.text}")
-            try:
-                error_json = exc.response.json()
-                if "error" in error_json:
-                    return f"⚠️ AI API error ({exc.response.status_code}): {error_json['error']}"
-            except:
-                pass
-        return None
+        # Use HF InferenceClient text generation
+        out = client.text_generation(
+            prompt,
+            model=HF_MODEL_ID,
+            max_new_tokens=512,
+            temperature=0.3,
+        )
     except Exception as exc:
-        print(f"HF API error: {exc}")
+        print(f"HF text_generation error (analysis): {exc}")
         return None
 
-    # The Inference API for text-generation typically returns a list of
-    # dicts with a 'generated_text' field.
-    try:
-        if isinstance(out, list) and out:
-            first = out[0]
-            if isinstance(first, dict) and "generated_text" in first:
-                return str(first["generated_text"])
-        elif isinstance(out, dict):
-            if "generated_text" in out:
-                return str(out["generated_text"])
-            elif "error" in out:
-                print(f"HF API returned error: {out['error']}")
-                return f"⚠️ AI model error: {out['error']}"
-        # Fallback: just stringify the response
-        return json.dumps(out, indent=2)
-    except Exception as exc:
-        print(f"Error parsing HF response: {exc}")
-        return None
+    # InferenceClient typically returns a string; fallback to str() just in case
+    return out if isinstance(out, str) else str(out)
 
 
 def call_hf_curve_chat(ai_payload, question):
@@ -406,12 +370,11 @@ def call_hf_curve_chat(ai_payload, question):
     if not HF_API_TOKEN or not HF_MODEL_ID or not ai_payload or not question:
         return None
 
-    # Use new Hugging Face router-based inference endpoint
-    url = "https://router.huggingface.co/hf-inference"
-    headers = {
-        "Authorization": f"Bearer {HF_API_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    try:
+        client = InferenceClient(provider="hf-inference", api_key=HF_API_TOKEN)
+    except Exception as exc:
+        print(f"HF InferenceClient init error (chat): {exc}")
+        return None
 
     system_msg = (
         "You are a petrophysics assistant. Given OCR text from a well log "
@@ -430,55 +393,18 @@ def call_hf_curve_chat(ai_payload, question):
         + "\n\nAnswer in concise markdown."
     )
 
-    data = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 512,
-            "temperature": 0.3,
-        },
-    }
-
     try:
-        resp = requests.post(url, headers=headers, json=data, timeout=60)
-        resp.raise_for_status()
-        out = resp.json()
-    except requests.exceptions.Timeout:
-        print(f"HF API timeout (chat) - model may be loading")
-        return "⏳ The AI model is loading (this can take 20-30 seconds on first request). Please try again in a moment."
-    except requests.exceptions.HTTPError as exc:
-        print(f"HF API HTTP error (chat): {exc}")
-        error_detail = "unknown"
-        if exc.response:
-            print(f"Status: {exc.response.status_code}")
-            print(f"Response: {exc.response.text}")
-            error_detail = f"{exc.response.status_code}"
-            try:
-                error_json = exc.response.json()
-                if "error" in error_json:
-                    error_detail = f"{exc.response.status_code}: {error_json['error']}"
-            except:
-                error_detail = f"{exc.response.status_code}: {exc.response.text[:200]}"
-        return f"AI API error: {error_detail}"
+        out = client.text_generation(
+            prompt,
+            model=HF_MODEL_ID,
+            max_new_tokens=512,
+            temperature=0.3,
+        )
     except Exception as exc:
-        print(f"HF API error (chat): {exc}")
+        print(f"HF text_generation error (chat): {exc}")
         return f"AI request failed: {str(exc)}"
 
-    try:
-        # Handle different response formats
-        if isinstance(out, list) and out:
-            first = out[0]
-            if isinstance(first, dict) and "generated_text" in first:
-                return str(first["generated_text"])
-        elif isinstance(out, dict):
-            if "generated_text" in out:
-                return str(out["generated_text"])
-            elif "error" in out:
-                print(f"HF API returned error: {out['error']}")
-                return f"AI model error: {out['error']}"
-        return json.dumps(out, indent=2)
-    except Exception as exc:
-        print(f"Error parsing HF response: {exc}")
-        return f"Error parsing AI response: {str(exc)}"
+    return out if isinstance(out, str) else str(out)
 def hsv_red_mask(hsv_img):
     lower1, upper1 = np.array([0, 80, 80]), np.array([10, 255, 255])
     lower2, upper2 = np.array([170, 80, 80]), np.array([180, 255, 255])
@@ -1363,36 +1289,27 @@ def test_ai():
             'HF_MODEL_ID': HF_MODEL_ID or 'missing'
         })
 
-    # Use new Hugging Face router-based inference endpoint
-    url = "https://router.huggingface.co/hf-inference"
-    headers = {
-        "Authorization": f"Bearer {HF_API_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    test_data = {
-        "model": HF_MODEL_ID,
-        "inputs": "What is 2+2?",
-        "parameters": {
-            "max_new_tokens": 50,
-            "temperature": 0.3,
-        },
-    }
-    
     try:
-        resp = requests.post(url, headers=headers, json=test_data, timeout=30)
-        status_code = resp.status_code
-        
-        try:
-            response_json = resp.json()
-        except:
-            response_json = {"raw_text": resp.text}
-        
+        client = InferenceClient(provider="hf-inference", api_key=HF_API_TOKEN)
+    except Exception as exc:
         return jsonify({
-            'success': resp.ok,
-            'status_code': status_code,
+            'success': False,
+            'error': f'InferenceClient init error: {str(exc)}',
+            'model': HF_MODEL_ID
+        })
+
+    try:
+        out = client.text_generation(
+            "What is 2+2?",
+            model=HF_MODEL_ID,
+            max_new_tokens=50,
+            temperature=0.3,
+        )
+        return jsonify({
+            'success': True,
+            'status_code': 200,
             'model': HF_MODEL_ID,
-            'response': response_json
+            'response': out if isinstance(out, str) else str(out)
         })
     except Exception as exc:
         return jsonify({
