@@ -165,6 +165,68 @@
             background-color: rgba(255, 152, 0, 0.2);
             pointer-events: auto;
         }
+        .depth-overlay-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            border-top: 1px dashed rgba(0, 0, 0, 0.2);
+            pointer-events: none;
+        }
+        .depth-overlay-label {
+            position: absolute;
+            left: 0;
+            transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.85);
+            padding: 1px 4px;
+            font-size: 10px;
+            color: #333;
+        }
+        .intro-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .intro-modal {
+            max-width: 600px;
+            width: 90%;
+            background: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+            padding: 20px 24px;
+        }
+        .intro-modal h2 {
+            margin-bottom: 10px;
+            color: #4c51bf;
+        }
+        .intro-modal p {
+            margin-bottom: 8px;
+            font-size: 0.95em;
+            color: #333;
+        }
+        .intro-modal ol {
+            margin-left: 20px;
+            margin-bottom: 10px;
+        }
+        .intro-modal li {
+            margin-bottom: 6px;
+            font-size: 0.9em;
+        }
+        .intro-modal-actions {
+            margin-top: 10px;
+            text-align: right;
+        }
+        .intro-modal-close {
+            border: none;
+            background: transparent;
+            color: #666;
+            float: right;
+            font-size: 18px;
+            cursor: pointer;
+        }
         .version-footer {
             margin-top: 8px;
             text-align: center;
@@ -174,10 +236,30 @@
     </style>
 </head>
 <body>
+    <div id="introModalBackdrop" class="intro-backdrop hidden">
+        <div class="intro-modal">
+            <button type="button" class="intro-modal-close" onclick="closeIntroModal()" aria-label="Close">×</button>
+            <h2>Welcome to TIFF→LAS Digitizer</h2>
+            <p>This tool converts well log images (TIFF/PNG/JPG) into LAS files. The AI suggests defaults, but you stay in control.</p>
+            <ol>
+                <li><strong>Upload image:</strong> Drop or choose your log in Step 1. The preview appears in Step 2.</li>
+                <li><strong>Depth setup:</strong> Use <em>Set top/bottom from image</em> and click on the depth scale on the image. The AI snaps to nearby depth labels and fills pixels and depth values.</li>
+                <li><strong>Curves:</strong> In Step 3, pick curve types, left/right pixels, and scale values. AI uses track detection, color, and OCR labels to prefill suggestions, but you can edit everything.</li>
+                <li><strong>Digitize:</strong> Click <em>Digitize &amp; Download LAS</em>. The app generates LAS, runs basic checks, and shows depth/curve sanity warnings so you can review before using the file.</li>
+                <li><strong>Review AI hints:</strong> Step 4 shows what the AI saw (e.g. header text like "SONIC DT" and sample values) to help you judge if its guesses make sense.</li>
+            </ol>
+            <p style="font-size: 0.85em; color: #555;">Tip: The AI never overwrites your choices. Treat suggestions as starting points, especially for depth anchors and curve labels.</p>
+            <div class="intro-modal-actions">
+                <button type="button" class="btn" style="padding: 8px 16px; font-size: 0.9em;" onclick="closeIntroModal()">Got it</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
         <div class="header">
             <h1>🎯 TIFF→LAS Digitizer</h1>
             <p>Upload your well log image and digitize curves automatically</p>
+            <button type="button" class="btn" style="margin-top: 10px; padding: 8px 16px; font-size: 0.9em;" onclick="openIntroModal()">❓ How to use this tool</button>
         </div>
 
         <div class="content">
@@ -286,11 +368,106 @@
         let detectedText = null;
         let depthAnchorMode = null; // 'top' | 'bottom' | null
 
+        const DEPTH_SESSION_KEY = 'tifflas_depth_config_v1';
+        const INTRO_SESSION_KEY = 'tifflas_intro_seen_v1';
+
+        function openIntroModal() {
+            const backdrop = document.getElementById('introModalBackdrop');
+            if (backdrop) {
+                backdrop.classList.remove('hidden');
+            }
+        }
+
+        function closeIntroModal() {
+            const backdrop = document.getElementById('introModalBackdrop');
+            if (backdrop) {
+                backdrop.classList.add('hidden');
+            }
+        }
+
         function setDepthAnchorMode(mode) {
             if (mode === 'top' || mode === 'bottom') {
                 depthAnchorMode = mode;
             } else {
                 depthAnchorMode = null;
+            }
+        }
+
+        function snapDepthToLabels(yImg) {
+            if (!ocrSuggestions || !ocrSuggestions.depth_labels || !ocrSuggestions.depth_labels.length) {
+                return null;
+            }
+            let best = null;
+            let bestDy = null;
+            for (const label of ocrSuggestions.depth_labels) {
+                const yLabel = Number(label.y_px);
+                if (!Number.isFinite(yLabel)) continue;
+                const dy = Math.abs(yLabel - yImg);
+                if (best === null || dy < bestDy) {
+                    best = label;
+                    bestDy = dy;
+                }
+            }
+            if (!best) return null;
+            const maxSnap = imageHeight ? Math.max(10, imageHeight * 0.02) : 30;
+            if (bestDy > maxSnap) return null;
+            const snappedY = Math.round(Number(best.y_px));
+            const snappedDepth = Number(best.depth);
+            if (!Number.isFinite(snappedY) || !Number.isFinite(snappedDepth)) return null;
+            return { y_px: snappedY, depth: snappedDepth };
+        }
+
+        function getDepthConfigFromInputs() {
+            const topPxVal = parseFloat(document.getElementById('topPx').value);
+            const bottomPxVal = parseFloat(document.getElementById('bottomPx').value);
+            const topDepthVal = parseFloat(document.getElementById('topDepth').value);
+            const bottomDepthVal = parseFloat(document.getElementById('bottomDepth').value);
+            const unitVal = document.getElementById('depthUnit').value;
+            if (!Number.isFinite(topPxVal) || !Number.isFinite(bottomPxVal) ||
+                !Number.isFinite(topDepthVal) || !Number.isFinite(bottomDepthVal)) {
+                return null;
+            }
+            return {
+                top_px: topPxVal,
+                bottom_px: bottomPxVal,
+                top_depth: topDepthVal,
+                bottom_depth: bottomDepthVal,
+                unit: unitVal
+            };
+        }
+
+        function saveDepthConfigToSession() {
+            try {
+                const cfg = getDepthConfigFromInputs();
+                if (!cfg) return;
+                sessionStorage.setItem(DEPTH_SESSION_KEY, JSON.stringify(cfg));
+            } catch (e) {
+                // ignore storage errors
+            }
+        }
+
+        function loadDepthConfigFromSession() {
+            try {
+                const raw = sessionStorage.getItem(DEPTH_SESSION_KEY);
+                if (!raw) return false;
+                const cfg = JSON.parse(raw);
+                if (!cfg) return false;
+                const topPxInput = document.getElementById('topPx');
+                const bottomPxInput = document.getElementById('bottomPx');
+                const topDepthInput = document.getElementById('topDepth');
+                const bottomDepthInput = document.getElementById('bottomDepth');
+                const depthUnit = document.getElementById('depthUnit');
+                if (!topPxInput || !bottomPxInput || !topDepthInput || !bottomDepthInput || !depthUnit) {
+                    return false;
+                }
+                if (Number.isFinite(cfg.top_px)) topPxInput.value = cfg.top_px;
+                if (Number.isFinite(cfg.bottom_px)) bottomPxInput.value = cfg.bottom_px;
+                if (Number.isFinite(cfg.top_depth)) topDepthInput.value = cfg.top_depth;
+                if (Number.isFinite(cfg.bottom_depth)) bottomDepthInput.value = cfg.bottom_depth;
+                if (cfg.unit) depthUnit.value = cfg.unit;
+                return true;
+            } catch (e) {
+                return false;
             }
         }
 
@@ -303,6 +480,18 @@
             CALI: { mnemonic: 'CALI', unit: 'IN' },
             SP:   { mnemonic: 'SP',   unit: 'MV' }
         };
+
+        (function initIntroModalOnce() {
+            try {
+                const seen = localStorage.getItem(INTRO_SESSION_KEY);
+                if (!seen) {
+                    openIntroModal();
+                    localStorage.setItem(INTRO_SESSION_KEY, '1');
+                }
+            } catch (e) {
+                // ignore localStorage issues
+            }
+        })();
 
         // Upload handling
         const uploadArea = document.getElementById('uploadArea');
@@ -370,29 +559,44 @@
             const yNorm = y / rect.height;      // 0..1
             const yImg = Math.round(yNorm * (imageHeight - 1));
 
+            const snapped = snapDepthToLabels(yImg);
+            const usedY = snapped ? snapped.y_px : yImg;
+            const snappedDepth = snapped ? snapped.depth : null;
+
             if (depthAnchorMode === 'top') {
                 const topPxInput = document.getElementById('topPx');
-                topPxInput.value = yImg;
-                const existing = document.getElementById('topDepth').value;
-                if (!existing) {
+                const topDepthInput = document.getElementById('topDepth');
+                topPxInput.value = usedY;
+                const existing = topDepthInput.value;
+                if (snappedDepth != null && Number.isFinite(snappedDepth)) {
+                    if (!existing) {
+                        topDepthInput.value = snappedDepth;
+                    }
+                } else if (!existing) {
                     const depthVal = window.prompt('Enter top depth value for this point (same unit as selected):');
                     if (depthVal !== null && depthVal !== '') {
-                        document.getElementById('topDepth').value = depthVal;
+                        topDepthInput.value = depthVal;
                     }
                 }
             } else if (depthAnchorMode === 'bottom') {
                 const bottomPxInput = document.getElementById('bottomPx');
-                bottomPxInput.value = yImg;
-                const existing = document.getElementById('bottomDepth').value;
-                if (!existing) {
+                const bottomDepthInput = document.getElementById('bottomDepth');
+                bottomPxInput.value = usedY;
+                const existing = bottomDepthInput.value;
+                if (snappedDepth != null && Number.isFinite(snappedDepth)) {
+                    if (!existing) {
+                        bottomDepthInput.value = snappedDepth;
+                    }
+                } else if (!existing) {
                     const depthVal = window.prompt('Enter bottom depth value for this point (same unit as selected):');
                     if (depthVal !== null && depthVal !== '') {
-                        document.getElementById('bottomDepth').value = depthVal;
+                        bottomDepthInput.value = depthVal;
                     }
                 }
             }
 
             depthAnchorMode = null;
+            renderDepthOverlays();
         });
 
         async function handleFile(file) {
@@ -428,6 +632,7 @@
                     const imgEl = document.getElementById('imagePreview');
                     imgEl.onload = () => {
                         renderLabelOverlays();
+                        renderDepthOverlays();
                     };
                     imgEl.src = data.image;
                     document.getElementById('imageDims').textContent = `${imageWidth} × ${imageHeight} pixels`;
@@ -443,10 +648,13 @@
                     autoConfigureCurves();
                     generateCurveInputs();
                     const appliedHints = applyOcrSuggestions();
+                    const usedSessionDepth = loadDepthConfigFromSession();
                     const aiNote = appliedHints ? ' ✨ AI suggestions applied.' : '';
-                    
-                    showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}`, 'success');
+                    const sessionNote = usedSessionDepth ? ' (reused last depth setup this session)' : '';
+
+                    showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}${sessionNote}`, 'success');
                     renderAiInsights();
+                    renderDepthOverlays();
                 } else {
                     showStatus('❌ Error: ' + data.error, 'error');
                 }
@@ -655,6 +863,83 @@
             });
         }
 
+        function clearDepthOverlays() {
+            const overlay = document.getElementById('overlay');
+            if (!overlay) return;
+            const lines = overlay.querySelectorAll('.depth-overlay-line');
+            lines.forEach((el) => el.remove());
+        }
+
+        function renderDepthOverlays() {
+            const overlay = document.getElementById('overlay');
+            const img = document.getElementById('imagePreview');
+            if (!overlay || !img || !imageWidth || !imageHeight) {
+                clearDepthOverlays();
+                return;
+            }
+
+            const cfg = getDepthConfigFromInputs();
+            if (!cfg) {
+                clearDepthOverlays();
+                return;
+            }
+
+            const rect = img.getBoundingClientRect();
+            if (!rect.height) {
+                clearDepthOverlays();
+                return;
+            }
+
+            clearDepthOverlays();
+
+            const topPx = cfg.top_px;
+            const bottomPx = cfg.bottom_px;
+            const topDepth = cfg.top_depth;
+            const bottomDepth = cfg.bottom_depth;
+
+            const dMin = Math.min(topDepth, bottomDepth);
+            const dMax = Math.max(topDepth, bottomDepth);
+            const span = dMax - dMin;
+            if (!Number.isFinite(span) || span <= 0) return;
+
+            const pixSpan = bottomPx - topPx;
+            if (!Number.isFinite(pixSpan) || pixSpan === 0) return;
+
+            // Choose a "nice" step to target about 5–10 lines
+            const targetLines = 8;
+            let roughStep = span / targetLines;
+            if (roughStep <= 0) return;
+            const pow10 = Math.pow(10, Math.floor(Math.log10(roughStep)));
+            const candidates = [1, 2, 5, 10];
+            let bestStep = pow10;
+            for (const c of candidates) {
+                const s = c * pow10;
+                if (Math.abs(s - roughStep) < Math.abs(bestStep - roughStep)) {
+                    bestStep = s;
+                }
+            }
+
+            const step = bestStep;
+            const start = Math.ceil(dMin / step) * step;
+            for (let depth = start; depth <= dMax + 1e-6; depth += step) {
+                const t = (depth - topDepth) / (bottomDepth - topDepth);
+                const yImg = topPx + t * pixSpan;
+                if (!Number.isFinite(yImg)) continue;
+                if (yImg < 0 || yImg > imageHeight - 1) continue;
+                const yDom = (yImg / imageHeight) * rect.height;
+
+                const line = document.createElement('div');
+                line.className = 'depth-overlay-line';
+                line.style.top = `${yDom}px`;
+
+                const label = document.createElement('div');
+                label.className = 'depth-overlay-label';
+                label.textContent = depth.toFixed(0);
+                line.appendChild(label);
+                overlay.appendChild(line);
+            }
+        }
+
         async function runDigitization() {
             const btn = document.getElementById('digitizeBtn');
             btn.disabled = true;
@@ -708,6 +993,8 @@
             }
 
             try {
+                saveDepthConfigToSession();
+                renderDepthOverlays();
                 const response = await fetch('/digitize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -738,6 +1025,14 @@
                         message = `⚠️ LAS saved, but validation reported: ${data.validation.message}`;
                     } else {
                         message = '✅ Success! LAS file downloaded.';
+                    }
+
+                    if (data.depth_warnings && data.depth_warnings.length) {
+                        const joinedDepth = data.depth_warnings.join(' | ');
+                        message += ` ⚠️ Depth sanity warnings: ${joinedDepth}`;
+                        if (statusType === 'success') {
+                            statusType = 'info';
+                        }
                     }
 
                     if (data.outlier_warnings && data.outlier_warnings.length) {

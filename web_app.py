@@ -267,15 +267,41 @@ def build_ocr_suggestions(numeric_entries):
 
     depth_hint = None
     if len(depth_candidates) >= 2:
-        top = depth_candidates[0]
-        bottom = depth_candidates[-1]
-        if bottom['y'] > top['y'] and bottom['value'] != top['value']:
-            depth_hint = {
-                'top_depth': top['value'],
-                'bottom_depth': bottom['value'],
-                'top_px': top['y'],
-                'bottom_px': bottom['y']
-            }
+        # Use all detected depth labels to fit a simple linear scale
+        ys = np.array([d['y'] for d in depth_candidates], dtype=np.float32)
+        vals = np.array([d['value'] for d in depth_candidates], dtype=np.float32)
+
+        try:
+            # depth ≈ a * pixel_y + b
+            a, b = np.polyfit(ys, vals, 1)
+            y_top = float(ys.min())
+            y_bottom = float(ys.max())
+            top_depth_fit = float(a * y_top + b)
+            bottom_depth_fit = float(a * y_bottom + b)
+
+            # Ensure we have a sensible span
+            if y_bottom > y_top and bottom_depth_fit != top_depth_fit:
+                depth_hint = {
+                    'top_depth': top_depth_fit,
+                    'bottom_depth': bottom_depth_fit,
+                    'top_px': y_top,
+                    'bottom_px': y_bottom,
+                    'fit_labels': [
+                        {'depth': float(v), 'y_px': float(y)}
+                        for (v, y) in zip(vals.tolist(), ys.tolist())
+                    ]
+                }
+        except Exception:
+            # Fallback to using just the first/last labels if fitting fails
+            top = depth_candidates[0]
+            bottom = depth_candidates[-1]
+            if bottom['y'] > top['y'] and bottom['value'] != top['value']:
+                depth_hint = {
+                    'top_depth': top['value'],
+                    'bottom_depth': bottom['value'],
+                    'top_px': top['y'],
+                    'bottom_px': bottom['y']
+                }
 
     # Suggest curve bounds by clustering x positions
     curve_hint = None
@@ -301,6 +327,11 @@ def build_ocr_suggestions(numeric_entries):
     suggestions = {}
     if depth_hint:
         suggestions['depth'] = depth_hint
+        # Also expose the raw depth label points for snapping in the UI
+        labels = depth_hint.get('fit_labels') or [
+            {'depth': d['value'], 'y_px': d['y']} for d in depth_candidates
+        ]
+        suggestions['depth_labels'] = labels
     if curve_hint:
         suggestions['curves'] = curve_hint
 
@@ -494,6 +525,50 @@ def compute_curve_outlier_warnings(curves_cfg, las_curve_data, null_val):
     if not curves_cfg or not las_curve_data:
         return warnings
 
+
+def compute_depth_warnings(depth_cfg, image_height):
+    """Basic sanity checks for depth configuration.
+
+    This checks for monotonicity and a reasonable depth-per-pixel scale.
+    Returns a list of human-readable warning strings.
+    """
+    if not depth_cfg:
+        return []
+
+    warnings = []
+
+    try:
+        top_px = float(depth_cfg.get('top_px'))
+        bottom_px = float(depth_cfg.get('bottom_px'))
+        top_depth = float(depth_cfg.get('top_depth'))
+        bottom_depth = float(depth_cfg.get('bottom_depth'))
+    except Exception:
+        return warnings
+
+    if not np.isfinite(top_px) or not np.isfinite(bottom_px) or not np.isfinite(top_depth) or not np.isfinite(bottom_depth):
+        return warnings
+
+    if bottom_px <= top_px:
+        warnings.append(f"Bottom pixel ({bottom_px:.0f}) is not below top pixel ({top_px:.0f}); check depth window.")
+
+    depth_span = bottom_depth - top_depth
+    pix_span = bottom_px - top_px
+
+    if depth_span == 0:
+        warnings.append("Top and bottom depths are identical; depth range is zero.")
+    else:
+        depth_per_pixel = depth_span / max(1.0, pix_span)
+        # Heuristic: flag extremely small or large scales
+        if abs(depth_per_pixel) < 1e-3:
+            warnings.append(f"Depth scale ({depth_per_pixel:.4f} per pixel) is extremely small; check depth values.")
+        if abs(depth_per_pixel) > 100.0:
+            warnings.append(f"Depth scale ({depth_per_pixel:.2f} per pixel) is extremely large; check depth values.")
+
+    if image_height and (top_px < 0 or bottom_px > image_height):
+        warnings.append(f"Depth pixels ({top_px:.0f}–{bottom_px:.0f}) are outside image bounds (0–{image_height - 1}).")
+
+    return warnings
+
     for c in curves_cfg:
         curve_type = (c.get('type') or '').upper()
         mnemonic = (c.get('las_mnemonic') or c.get('name') or '').upper()
@@ -666,6 +741,14 @@ def digitize():
     
     nrows = bot - top
     base_depth = compute_depth_vector(nrows, top_depth, bottom_depth)
+
+    # Depth sanity checks
+    depth_warnings = compute_depth_warnings({
+        'top_px': top,
+        'bottom_px': bot,
+        'top_depth': top_depth,
+        'bottom_depth': bottom_depth,
+    }, H)
     
     curve_data = {}
     
@@ -766,7 +849,8 @@ def digitize():
         'las_content': las_content,
         'filename': 'digitized_log.las',
         'validation': validation,
-        'outlier_warnings': outlier_warnings
+        'outlier_warnings': outlier_warnings,
+        'depth_warnings': depth_warnings
     })
 
 @app.route('/health')
