@@ -362,7 +362,15 @@ def call_hf_curve_analysis(ai_payload):
         return "⏳ AI model is loading (20-30 seconds on first request). Refresh and try again."
     except requests.exceptions.HTTPError as exc:
         print(f"HF API HTTP error: {exc}")
-        print(f"Response: {exc.response.text if exc.response else 'no response'}")
+        if exc.response:
+            print(f"Status: {exc.response.status_code}")
+            print(f"Response: {exc.response.text}")
+            try:
+                error_json = exc.response.json()
+                if "error" in error_json:
+                    return f"⚠️ AI API error ({exc.response.status_code}): {error_json['error']}"
+            except:
+                pass
         return None
     except Exception as exc:
         print(f"HF API error: {exc}")
@@ -436,8 +444,18 @@ def call_hf_curve_chat(ai_payload, question):
         return "⏳ The AI model is loading (this can take 20-30 seconds on first request). Please try again in a moment."
     except requests.exceptions.HTTPError as exc:
         print(f"HF API HTTP error (chat): {exc}")
-        print(f"Response: {exc.response.text if exc.response else 'no response'}")
-        return f"AI API error: {exc.response.status_code if exc.response else 'unknown'}"
+        error_detail = "unknown"
+        if exc.response:
+            print(f"Status: {exc.response.status_code}")
+            print(f"Response: {exc.response.text}")
+            error_detail = f"{exc.response.status_code}"
+            try:
+                error_json = exc.response.json()
+                if "error" in error_json:
+                    error_detail = f"{exc.response.status_code}: {error_json['error']}"
+            except:
+                error_detail = f"{exc.response.status_code}: {exc.response.text[:200]}"
+        return f"AI API error: {error_detail}"
     except Exception as exc:
         print(f"HF API error (chat): {exc}")
         return f"AI request failed: {str(exc)}"
