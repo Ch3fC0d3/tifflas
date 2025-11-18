@@ -1349,6 +1349,54 @@ def debug_env():
     })
 
 
+@app.route('/test-ai')
+def test_ai():
+    """Test endpoint to verify Hugging Face API is working."""
+    if not HF_API_TOKEN or not HF_MODEL_ID:
+        return jsonify({
+            'success': False,
+            'error': 'HF_API_TOKEN or HF_MODEL_ID not configured',
+            'HF_API_TOKEN': 'set' if HF_API_TOKEN else 'missing',
+            'HF_MODEL_ID': HF_MODEL_ID or 'missing'
+        })
+    
+    url = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
+    headers = {
+        "Authorization": f"Bearer {HF_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    
+    test_data = {
+        "inputs": "What is 2+2?",
+        "parameters": {
+            "max_new_tokens": 50,
+            "temperature": 0.3,
+        },
+    }
+    
+    try:
+        resp = requests.post(url, headers=headers, json=test_data, timeout=30)
+        status_code = resp.status_code
+        
+        try:
+            response_json = resp.json()
+        except:
+            response_json = {"raw_text": resp.text}
+        
+        return jsonify({
+            'success': resp.ok,
+            'status_code': status_code,
+            'model': HF_MODEL_ID,
+            'response': response_json
+        })
+    except Exception as exc:
+        return jsonify({
+            'success': False,
+            'error': str(exc),
+            'model': HF_MODEL_ID
+        })
+
+
 @app.route('/ask_ai', methods=['POST'])
 def ask_ai():
     """Chat-style endpoint: answer a question about the current log using ai_payload.
