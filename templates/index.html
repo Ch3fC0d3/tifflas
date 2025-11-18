@@ -350,6 +350,7 @@
                 </div>
 
                 <div id="curvesContainer"></div>
+                <div id="curveScaleSummary" class="hint-text" style="margin-top: 8px;"></div>
 
                 <button class="btn" onclick="runDigitization()" id="digitizeBtn" style="margin-top: 20px;">
                     🚀 Digitize & Download LAS
@@ -687,6 +688,93 @@
             }
         }
 
+        function updateCurveScaleHints() {
+            const numCurvesInput = document.getElementById('numCurves');
+            const summaryEl = document.getElementById('curveScaleSummary');
+            const numCurves = numCurvesInput ? (parseInt(numCurvesInput.value) || 0) : 0;
+            if (!summaryEl) {
+                return;
+            }
+
+            const typeRanges = [
+                { type: 'GR',   low: 0.0,   high: 200.0, label: 'GR (Gamma Ray, API)' },
+                { type: 'RHOB', low: 1.7,   high: 3.0,   label: 'RHOB (Density, g/cc)' },
+                { type: 'DT',   low: 40.0,  high: 200.0, label: 'DT/DTCO (Sonic,  s/ft)' },
+                { type: 'NPHI', low: 0.0,   high: 0.5,   label: 'NPHI (Neutron, v/v)' }
+            ];
+
+            function inferType(minVal, maxVal) {
+                let bestType = null;
+                let bestOverlap = 0;
+                for (const tr of typeRanges) {
+                    const ovLow = Math.max(minVal, tr.low);
+                    const ovHigh = Math.min(maxVal, tr.high);
+                    const overlap = ovHigh - ovLow;
+                    if (overlap > 0 && overlap > bestOverlap) {
+                        bestOverlap = overlap;
+                        bestType = tr.type;
+                    }
+                }
+                return bestType;
+            }
+
+            function describeType(t) {
+                const found = typeRanges.find(tr => tr.type === t);
+                return found ? found.label : t;
+            }
+
+            const summaries = [];
+
+            for (let i = 0; i < numCurves; i++) {
+                const hintEl = document.getElementById(`curveHint${i}`);
+                const typeEl = document.getElementById(`type${i}`);
+                const leftValEl = document.getElementById(`leftVal${i}`);
+                const rightValEl = document.getElementById(`rightVal${i}`);
+                if (!hintEl || !typeEl || !leftValEl || !rightValEl) {
+                    continue;
+                }
+
+                const typeVal = (typeEl.value || '').toUpperCase();
+                const leftVal = parseFloat(leftValEl.value);
+                const rightVal = parseFloat(rightValEl.value);
+                if (!Number.isFinite(leftVal) || !Number.isFinite(rightVal)) {
+                    hintEl.textContent = '';
+                    continue;
+                }
+
+                const minVal = Math.min(leftVal, rightVal);
+                const maxVal = Math.max(leftVal, rightVal);
+                const bestType = inferType(minVal, maxVal);
+
+                summaries.push({ index: i + 1, selectedType: typeVal, bestType });
+
+                if (!bestType) {
+                    hintEl.textContent = 'Scale does not clearly match GR/RHOB/DT/NPHI typical ranges.';
+                    continue;
+                }
+
+                if (typeVal === bestType) {
+                    hintEl.textContent = `Scale looks consistent with ${describeType(bestType)}.`;
+                } else if (typeVal === 'OTHER' || !typeVal) {
+                    hintEl.textContent = `Scale looks like ${describeType(bestType)}; consider setting Curve type to ${bestType}.`;
+                } else {
+                    hintEl.textContent = `Warning: selected type ${typeVal} but scale looks like ${describeType(bestType)}.`;
+                }
+            }
+
+            // Simple GR/RHOB swap hint
+            let swapMessage = '';
+            const grAsRhob = summaries.filter(s => s.selectedType === 'GR' && s.bestType === 'RHOB');
+            const rhobAsGr = summaries.filter(s => s.selectedType === 'RHOB' && s.bestType === 'GR');
+            if (grAsRhob.length && rhobAsGr.length) {
+                const a = grAsRhob[0].index;
+                const b = rhobAsGr[0].index;
+                swapMessage = `Possible swap: curve ${a} looks like RHOB while curve ${b} looks like GR based on scale ranges.`;
+            }
+
+            summaryEl.textContent = swapMessage;
+        }
+
         function generateCurveInputs(tracks = null) {
             const numCurves = parseInt(document.getElementById('numCurves').value);
             const container = document.getElementById('curvesContainer');
@@ -763,6 +851,8 @@
                             <select id="mode${i}">
                                 <option value="black" ${recommendedMode === 'black' ? 'selected' : ''}>Black</option>
                                 <option value="red" ${recommendedMode === 'red' ? 'selected' : ''}>Red</option>
+                                <option value="blue" ${recommendedMode === 'blue' ? 'selected' : ''}>Blue</option>
+                                <option value="green" ${recommendedMode === 'green' ? 'selected' : ''}>Green</option>
                             </select>
                         </div>
                         <div class="field">
@@ -772,10 +862,25 @@
                                 <input type="text" id="lasUnit${i}" placeholder="LAS unit (e.g. API, G/CC)" value="${defaults.unit}">
                             </div>
                         </div>
+                        <div class="field">
+                            <label>Scale check</label>
+                            <div class="hint-text" id="curveHint${i}"></div>
+                        </div>
                     </div>
                 `;
                 container.appendChild(curveDiv);
+
+                const typeEl = document.getElementById(`type${i}`);
+                const leftValEl = document.getElementById(`leftVal${i}`);
+                const rightValEl = document.getElementById(`rightVal${i}`);
+                [typeEl, leftValEl, rightValEl].forEach((el) => {
+                    if (el) {
+                        el.addEventListener('change', updateCurveScaleHints);
+                        el.addEventListener('input', updateCurveScaleHints);
+                    }
+                });
             }
+            updateCurveScaleHints();
         }
 
         function applyOcrSuggestions() {

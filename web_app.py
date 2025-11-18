@@ -84,12 +84,31 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 def hsv_red_mask(hsv_img):
     lower1, upper1 = np.array([0, 80, 80]), np.array([10, 255, 255])
     lower2, upper2 = np.array([170, 80, 80]), np.array([180, 255, 255])
-    return cv2.bitwise_or(cv2.inRange(hsv_img, lower1, upper1), 
-                         cv2.inRange(hsv_img, lower2, upper2))
+    return cv2.bitwise_or(
+        cv2.inRange(hsv_img, lower1, upper1),
+        cv2.inRange(hsv_img, lower2, upper2),
+    )
+
+
+def hsv_blue_mask(hsv_img):
+    lower, upper = np.array([90, 80, 80]), np.array([140, 255, 255])
+    return cv2.inRange(hsv_img, lower, upper)
+
+
+def hsv_green_mask(hsv_img):
+    lower, upper = np.array([40, 80, 80]), np.array([90, 255, 255])
+    return cv2.inRange(hsv_img, lower, upper)
+
 
 def black_mask(gray_img):
-    return cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                cv2.THRESH_BINARY_INV, 51, 10)
+    return cv2.adaptiveThreshold(
+        gray_img,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        51,
+        10,
+    )
 
 def pick_curve_x_per_row(mask, min_run=2):
     h, w = mask.shape
@@ -491,7 +510,13 @@ def attach_color_hints_to_ocr_curves(image_array, suggestions):
         dominant = "mixed"
         recommended_mode = "black"
 
-        if r > g * 1.2 and r > b * 1.2 and r > 60:
+        if b > r * 1.2 and b > g * 1.2 and b > 60:
+            dominant = "blue"
+            recommended_mode = "blue"
+        elif g > r * 1.2 and g > b * 1.2 and g > 60:
+            dominant = "green"
+            recommended_mode = "green"
+        elif r > g * 1.2 and r > b * 1.2 and r > 60:
             dominant = "red"
             recommended_mode = "red"
         elif max(b, g, r) < 80:
@@ -503,10 +528,14 @@ def attach_color_hints_to_ocr_curves(image_array, suggestions):
 
         if dominant == "red":
             hint_text = "Track appears predominantly red; consider using Red mode for detection."
+        elif dominant == "green":
+            hint_text = "Track appears predominantly green; consider using Green mode for detection."
+        elif dominant == "blue":
+            hint_text = "Track appears predominantly blue; consider using Blue mode for detection."
         elif dominant in ("dark", "gray"):
             hint_text = "Track appears mostly dark; Black mode is likely appropriate."
         else:
-            hint_text = "Track color is mixed; choose Red/Black mode based on how the curve is drawn."
+            hint_text = "Track color is mixed; choose Red/Black/Blue/Green mode based on how the curve is drawn."
 
         curve['color_dominant'] = dominant
         curve['color_recommended_mode'] = recommended_mode
@@ -771,6 +800,12 @@ def digitize():
         if mode == 'red':
             hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
             mask = hsv_red_mask(hsv)
+        elif mode == 'blue':
+            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+            mask = hsv_blue_mask(hsv)
+        elif mode == 'green':
+            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+            mask = hsv_green_mask(hsv)
         else:
             gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
             mask = black_mask(gray)
