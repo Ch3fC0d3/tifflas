@@ -325,7 +325,8 @@ def call_hf_curve_analysis(ai_payload):
     if not HF_API_TOKEN or not HF_MODEL_ID or not ai_payload:
         return None
 
-    url = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
+    # Use new Hugging Face router-based inference endpoint
+    url = "https://router.huggingface.co/hf-inference"
     headers = {
         "Authorization": f"Bearer {HF_API_TOKEN}",
         "Content-Type": "application/json",
@@ -346,6 +347,7 @@ def call_hf_curve_analysis(ai_payload):
     )
 
     data = {
+        "model": HF_MODEL_ID,
         "inputs": prompt,
         "parameters": {
             "max_new_tokens": 512,
@@ -404,7 +406,8 @@ def call_hf_curve_chat(ai_payload, question):
     if not HF_API_TOKEN or not HF_MODEL_ID or not ai_payload or not question:
         return None
 
-    url = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
+    # Use new Hugging Face router-based inference endpoint
+    url = "https://router.huggingface.co/hf-inference"
     headers = {
         "Authorization": f"Bearer {HF_API_TOKEN}",
         "Content-Type": "application/json",
@@ -1359,14 +1362,16 @@ def test_ai():
             'HF_API_TOKEN': 'set' if HF_API_TOKEN else 'missing',
             'HF_MODEL_ID': HF_MODEL_ID or 'missing'
         })
-    
-    url = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
+
+    # Use new Hugging Face router-based inference endpoint
+    url = "https://router.huggingface.co/hf-inference"
     headers = {
         "Authorization": f"Bearer {HF_API_TOKEN}",
         "Content-Type": "application/json",
     }
-    
+
     test_data = {
+        "model": HF_MODEL_ID,
         "inputs": "What is 2+2?",
         "parameters": {
             "max_new_tokens": 50,

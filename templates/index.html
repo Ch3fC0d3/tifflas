@@ -1465,7 +1465,7 @@
                 return;
             }
 
-            if (!detectedText || !detectedText.textAnnotations || detectedText.textAnnotations.length === 0) {
+            if (!detectedText || !detectedText.raw || detectedText.raw.length === 0) {
                 showStatus('⚠️ OCR not available. Google Vision API credentials need to be configured on the server.', 'info');
                 return;
             }
@@ -1474,12 +1474,12 @@
             let bestMatch = null;
             let bestScore = 0;
 
-            for (const annotation of detectedText.textAnnotations) {
-                if (!annotation.description || !annotation.boundingPoly || !annotation.boundingPoly.vertices) {
+            for (const annotation of detectedText.raw) {
+                if (!annotation.text || !annotation.vertices) {
                     continue;
                 }
 
-                const text = annotation.description.toLowerCase();
+                const text = annotation.text.toLowerCase();
                 
                 // Exact match
                 if (text === phrase) {
@@ -1503,7 +1503,7 @@
             }
 
             // Calculate center of bounding box
-            const vertices = bestMatch.boundingPoly.vertices;
+            const vertices = bestMatch.vertices;
             const centerX = vertices.reduce((sum, v) => sum + (v.x || 0), 0) / vertices.length;
             const centerY = vertices.reduce((sum, v) => sum + (v.y || 0), 0) / vertices.length;
 
