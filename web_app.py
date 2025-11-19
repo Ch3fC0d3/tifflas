@@ -392,11 +392,13 @@ def call_hf_curve_analysis(ai_payload):
         "You are a petrophysics assistant. Given OCR text from a well log "
         "image and numeric summaries of each LAS curve, identify which LAS "
         "curves are likely GR, RHOB, NPHI, DT, RES, etc. Provide a detailed, "
-        "structured markdown report that: (1) maps each LAS curve to its most "
-        "likely identity with reasoning, (2) comments on value ranges, units, "
-        "and typical petrophysical expectations, (3) highlights data quality "
-        "issues such as missing data or spikes, and (4) calls out any unusual "
-        "depth intervals. Do not invent curves that are not present."
+        "structured markdown report that: (1) explains your methodology for "
+        "identifying each curve (OCR labels, value ranges, units, typical scales), "
+        "(2) maps each LAS curve to its most likely identity with specific reasoning, "
+        "(3) comments on value ranges, units, and typical petrophysical expectations, "
+        "(4) highlights data quality issues such as missing data or spikes, and "
+        "(5) calls out any unusual depth intervals. Always explain WHY you identified "
+        "each curve the way you did. Do not invent curves that are not present."
     )
 
     prompt = (
