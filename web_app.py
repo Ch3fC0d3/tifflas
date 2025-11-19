@@ -24,6 +24,7 @@ import tempfile
 from datetime import datetime
 import requests
 import openai
+import google.generativeai as genai
 from huggingface_hub import InferenceClient
 
 # Try to import Google Vision API (optional)
@@ -90,6 +91,9 @@ HF_MODEL_ID = os.getenv("HF_MODEL_ID")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL_ID = os.getenv("OPENAI_MODEL_ID") or os.getenv("OPENAI_MODEL")
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID") or "gemini-1.5-flash"
 
 APP_VERSION = os.environ.get("APP_VERSION", "dev")
 APP_BUILD_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -214,6 +218,12 @@ def summarize_las_curves_from_str(las_text, depth_mnemonics=("DEPT", "DEPTH")):
         if curve is depth_curve:
             continue
         f = compute_curve_features(depth, curve.data, curve.mnemonic)
+        f["mnemonic"] = curve.mnemonic
+        f["unit"] = getattr(curve, "unit", "") or ""
+        f["description"] = getattr(curve, "descr", "") or getattr(curve, "description", "") or ""
+        f["rule_type_guess"] = guess_curve_type_from_metadata(
+            f["mnemonic"], f["unit"], f["description"]
+        )
         all_features.append(f)
 
     return {
@@ -271,7 +281,31 @@ def match_vision_to_las_curves(vision_labels, las_curve_mnemonics):
     return mapping
 
 
-def build_ai_analysis_payload(las_text, detected_text):
+def guess_curve_type_from_metadata(mnemonic, unit, description):
+    m = (mnemonic or "").upper()
+    u = (unit or "").upper()
+    d = (description or "").upper()
+
+    text = " ".join([m, u, d])
+
+    if "GR" in m or "GAMMA" in text:
+        return "GR"
+    if "RHOB" in m or "DENSITY" in text or "RHO B" in text:
+        return "RHOB"
+    if "NPHI" in m or "NEUT" in text or "POROSITY" in text:
+        return "NPHI"
+    if "DT" in m or "DTC" in m or "SONIC" in text:
+        return "DT"
+    if "CALI" in m or "CALIPER" in text:
+        return "CALI"
+    if "SP" in m or "SPONTANEOUS" in text:
+        return "SP"
+    if "RES" in m or "RESISTIVITY" in text or "OHMM" in u or "OHM-M" in u or "OHMM" in text:
+        return "RES"
+    return None
+
+
+def build_ai_analysis_payload(las_text, detected_text, user_curves=None):
     """Build a structured payload combining OCR text + LAS summary + simple mapping."""
     if not las_text:
         return None
@@ -312,12 +346,37 @@ def build_ai_analysis_payload(las_text, detected_text):
                 cf_flags.append("spiky")
             cf["flags"] = cf_flags
 
+    # 4) User-provided curve config (manual overrides from frontend)
+    user_curve_metadata = None
+    user_curve_type_by_mnemonic = None
+    if user_curves:
+        user_curve_metadata = []
+        user_curve_type_by_mnemonic = {}
+        for idx, c in enumerate(user_curves):
+            sel_type = c.get("type")
+            las_mnemonic = (c.get("las_mnemonic") or c.get("name") or "").upper()
+            entry = {
+                "index": idx + 1,
+                "selected_type": sel_type,
+                "las_mnemonic": las_mnemonic,
+                "las_unit": c.get("las_unit") or c.get("unit") or "",
+                "display_name": c.get("display_name"),
+                "display_unit": c.get("display_unit"),
+            }
+            user_curve_metadata.append(entry)
+            if las_mnemonic:
+                user_curve_type_by_mnemonic[las_mnemonic] = sel_type
+
     payload = {
         "ocr_text": full_text,
         "vision_curve_labels": vision_curve_labels,
         "vision_to_las_mapping": vision_to_las,
         "las_summary": las_summary,
     }
+
+    if user_curve_metadata is not None:
+        payload["user_curves"] = user_curve_metadata
+        payload["user_curve_type_by_mnemonic"] = user_curve_type_by_mnemonic
 
     return payload
 
@@ -333,9 +392,12 @@ def call_hf_curve_analysis(ai_payload):
     system_msg = (
         "You are a petrophysics assistant. Given OCR text from a well log "
         "image and numeric summaries of each LAS curve, identify which LAS "
-        "curves are likely GR, RHOB, NPHI, DT, RES, etc. Be concise and "
-        "return a short markdown summary listing each LAS curve with its "
-        "most likely identity and any obvious issues (missing data, spikes)."
+        "curves are likely GR, RHOB, NPHI, DT, RES, etc. Provide a detailed, "
+        "structured markdown report that: (1) maps each LAS curve to its most "
+        "likely identity with reasoning, (2) comments on value ranges, units, "
+        "and typical petrophysical expectations, (3) highlights data quality "
+        "issues such as missing data or spikes, and (4) calls out any unusual "
+        "depth intervals. Do not invent curves that are not present."
     )
 
     prompt = (
@@ -344,7 +406,19 @@ def call_hf_curve_analysis(ai_payload):
         + json.dumps(ai_payload, indent=2)
     )
 
-    # Prefer OpenAI if configured
+    # Prefer Gemini if configured
+    if GEMINI_API_KEY and GEMINI_MODEL_ID:
+        try:
+            genai.configure(api_key=GEMINI_API_KEY)
+            model = genai.GenerativeModel(GEMINI_MODEL_ID)
+            resp = model.generate_content(prompt)
+            text = getattr(resp, "text", None)
+            if text:
+                return str(text)
+        except Exception as exc:
+            print(f"Gemini API error (analysis): {exc}")
+
+    # Fallback to OpenAI if configured
     if OPENAI_API_KEY and OPENAI_MODEL_ID:
         try:
             openai.api_key = OPENAI_API_KEY
@@ -403,9 +477,12 @@ def call_hf_curve_chat(ai_payload, question):
     system_msg = (
         "You are a petrophysics assistant. Given OCR text from a well log "
         "image and numeric summaries of each LAS curve, answer the user's "
-        "question about which curves are likely GR, RHOB, NPHI, DT, RES, etc. "
-        "Comment on whether values and ranges look reasonable. Answer concisely "
-        "in markdown, and do not invent curves that are not present."
+        "question with a detailed but focused markdown explanation. When "
+        "relevant, discuss which curves are likely GR, RHOB, NPHI, DT, RES, "
+        "etc., comment on whether values and ranges look reasonable, and refer "
+        "to specific depth intervals or data-quality issues. Be precise about "
+        "what is supported by the provided payload, and do not invent curves "
+        "that are not present."
     )
 
     payload_text = (
@@ -415,7 +492,19 @@ def call_hf_curve_chat(ai_payload, question):
         + question
     )
 
-    # Prefer OpenAI if configured
+    # Prefer Gemini if configured
+    if GEMINI_API_KEY and GEMINI_MODEL_ID:
+        try:
+            genai.configure(api_key=GEMINI_API_KEY)
+            model = genai.GenerativeModel(GEMINI_MODEL_ID)
+            resp = model.generate_content(payload_text)
+            text = getattr(resp, "text", None)
+            if text:
+                return str(text)
+        except Exception as exc:
+            print(f"Gemini API error (chat): {exc}")
+
+    # Fallback to OpenAI if configured
     if OPENAI_API_KEY and OPENAI_MODEL_ID:
         try:
             openai.api_key = OPENAI_API_KEY
@@ -1297,8 +1386,8 @@ def digitize():
                 'message': f'LAS validation failed: {exc}'
             }
 
-    # Build AI analysis payload (OCR + LAS stats) and optionally call Hugging Face
-    ai_payload = build_ai_analysis_payload(las_content, detected_text)
+    # Build AI analysis payload (OCR + LAS stats + user curve config)
+    ai_payload = build_ai_analysis_payload(las_content, detected_text, curves)
     ai_summary = call_hf_curve_analysis(ai_payload) if ai_payload else None
 
     return jsonify({
@@ -1329,6 +1418,8 @@ def debug_env():
         'HF_MODEL_ID': HF_MODEL_ID or 'missing',
         'OPENAI_API_KEY': 'set' if OPENAI_API_KEY else 'missing',
         'OPENAI_MODEL_ID': OPENAI_MODEL_ID or 'missing',
+        'GEMINI_API_KEY': 'set' if GEMINI_API_KEY else 'missing',
+        'GEMINI_MODEL_ID': GEMINI_MODEL_ID or 'missing',
         'VISION_API_AVAILABLE': VISION_API_AVAILABLE,
         'GOOGLE_VISION_CREDENTIALS_JSON': 'set' if os.getenv('GOOGLE_VISION_CREDENTIALS_JSON') else 'missing',
         'GOOGLE_APPLICATION_CREDENTIALS': 'set' if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') else 'missing'
@@ -1338,7 +1429,29 @@ def debug_env():
 @app.route('/test-ai')
 def test_ai():
     """Test endpoint to verify Hugging Face API is working."""
-    # Prefer OpenAI if configured
+    # Prefer Gemini if configured
+    if GEMINI_API_KEY and GEMINI_MODEL_ID:
+        try:
+            genai.configure(api_key=GEMINI_API_KEY)
+            model = genai.GenerativeModel(GEMINI_MODEL_ID)
+            resp = model.generate_content("What is 2+2?")
+            text = getattr(resp, 'text', '') or ''
+            return jsonify({
+                'success': True,
+                'status_code': 200,
+                'provider': 'gemini',
+                'model': GEMINI_MODEL_ID,
+                'response': text,
+            })
+        except Exception as exc:
+            return jsonify({
+                'success': False,
+                'provider': 'gemini',
+                'model': GEMINI_MODEL_ID,
+                'error': str(exc),
+            })
+
+    # Fallback to OpenAI if configured
     if OPENAI_API_KEY and OPENAI_MODEL_ID:
         try:
             openai.api_key = OPENAI_API_KEY
@@ -1373,7 +1486,7 @@ def test_ai():
     if not HF_API_TOKEN or not HF_MODEL_ID:
         return jsonify({
             'success': False,
-            'error': 'No AI provider configured (missing OpenAI or HF credentials).',
+            'error': 'No AI provider configured (missing Gemini/OpenAI/HF credentials).',
             'HF_API_TOKEN': 'set' if HF_API_TOKEN else 'missing',
             'HF_MODEL_ID': HF_MODEL_ID or 'missing'
         })

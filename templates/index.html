@@ -365,6 +365,8 @@
                     <label>Number of Curves (max 6)</label>
                     <input type="number" id="numCurves" value="3" min="1" max="6">
                     <button class="btn" onclick="generateCurveInputs()" style="margin-top: 10px;">Generate Curve Fields</button>
+                    <button class="btn" type="button" onclick="autoFillCurveTypes()" style="margin-top: 10px; margin-left: 8px;">✨ Auto-fill curve types</button>
+                    <div class="hint-text" style="margin-top: 4px;">Uses scale ranges (GR/RHOB/NPHI/DT) to guess curve types for each track; you can still edit them.</div>
                 </div>
 
                 <div id="curvesContainer"></div>
@@ -389,6 +391,7 @@
                     <p class="hint-text">The AI sees OCR text and LAS curve statistics for this image. You can ask things like "Which curve is GR vs DT?" or "Do any curves look unreasonable?"</p>
                     <textarea id="aiChatQuestion" rows="3" style="width: 100%; margin-top: 6px;" placeholder="Type a question about the current log (after running Digitize)..."></textarea>
                     <button type="button" class="btn" style="margin-top: 6px;" onclick="askAiAboutLog()">Ask AI</button>
+                    <button type="button" class="btn" style="margin-top: 6px; margin-left: 8px;" onclick="askAiWhichCurveIsWhich()">Ask: which curve is which?</button>
                     <div id="aiChatOutput" style="margin-top: 8px;"></div>
                 </div>
             </div>
@@ -752,6 +755,15 @@
             if (!isAutoFix) {
                 updateCurveScaleHints();
             }
+        }
+
+        function autoFillCurveTypes() {
+            const container = document.getElementById('curvesContainer');
+            if (container && !container.children.length) {
+                generateCurveInputs();
+            }
+            updateCurveScaleHints(true);
+            showStatus('Auto-filled curve types based on scale ranges. Please review before digitizing.', 'info');
         }
 
         function updateCurveScaleHints(autoApply) {
@@ -1623,6 +1635,13 @@
             } catch (err) {
                 output.innerHTML = `<p class="hint-text">AI request failed: ${err.message}</p>`;
             }
+        }
+
+        async function askAiWhichCurveIsWhich() {
+            const textarea = document.getElementById('aiChatQuestion');
+            if (!textarea) return;
+            textarea.value = 'Please list each LAS curve in this log and state which petrophysical curve type it most likely is (GR, RHOB, NPHI, DT, RES, CALI, SP, etc.), with brief reasoning. Also mention any obvious mislabeling or swapped curves.';
+            await askAiAboutLog();
         }
 
         function parseLas(lasText) {

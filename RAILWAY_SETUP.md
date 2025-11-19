@@ -15,11 +15,20 @@ GOOGLE_VISION_CREDENTIALS_JSON={"type":"service_account","project_id":"your-proj
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
 ```
 
-### 2. AI Provider (Hugging Face or OpenAI)
+### 2. AI Provider (Gemini, OpenAI, or Hugging Face)
 
-You can use **either** Hugging Face Inference **or** OpenAI as the AI backend.
+The app will try **Google Gemini first**, then **OpenAI**, then **Hugging Face** (if their credentials are set).
 
-**Option A: OpenAI (recommended if you already have an OpenAI key)**
+**Option A: Google Gemini (recommended if you have a Google account)**
+
+```env
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL_ID=gemini-1.5-flash
+```
+
+If you don't set `GEMINI_MODEL_ID`, the app defaults to `gemini-1.5-flash`.
+
+**Option B: OpenAI**
 
 ```env
 OPENAI_API_KEY=sk-...your-key-here...
@@ -28,7 +37,7 @@ OPENAI_MODEL_ID=gpt-3.5-turbo
 
 You can also use `gpt-4o-mini` or other chat-capable models if your account allows it.
 
-**Option B: Hugging Face Inference**
+**Option C: Hugging Face Inference**
 
 ```env
 HF_API_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -83,14 +92,21 @@ After setting environment variables:
 ## Troubleshooting
 
 ### Check if variables are set
-Add this temporary route to `web_app.py`:
+The app already includes a `/debug-env` route. It looks like this in `web_app.py`:
 ```python
 @app.route('/debug-env')
 def debug_env():
+    """Debug endpoint to check environment variable configuration."""
     return jsonify({
         'HF_API_TOKEN': 'set' if HF_API_TOKEN else 'missing',
         'HF_MODEL_ID': HF_MODEL_ID or 'missing',
-        'VISION_API': VISION_API_AVAILABLE
+        'OPENAI_API_KEY': 'set' if OPENAI_API_KEY else 'missing',
+        'OPENAI_MODEL_ID': OPENAI_MODEL_ID or 'missing',
+        'GEMINI_API_KEY': 'set' if GEMINI_API_KEY else 'missing',
+        'GEMINI_MODEL_ID': GEMINI_MODEL_ID or 'missing',
+        'VISION_API_AVAILABLE': VISION_API_AVAILABLE,
+        'GOOGLE_VISION_CREDENTIALS_JSON': 'set' if os.getenv('GOOGLE_VISION_CREDENTIALS_JSON') else 'missing',
+        'GOOGLE_APPLICATION_CREDENTIALS': 'set' if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') else 'missing'
     })
 ```
 
@@ -98,5 +114,5 @@ Then visit: `https://tifflas-production.up.railway.app/debug-env`
 
 ### Common Issues
 - **OCR not working**: Google Vision credentials not set or invalid
-- **AI chat 500 error**: HF token/model not set
+- **AI chat 500 error**: Gemini/OpenAI/HF credentials not set or model ID invalid
 - **AI chat timeout**: Model is loading (first request can take 20-30 seconds)
