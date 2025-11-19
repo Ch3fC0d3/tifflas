@@ -432,6 +432,7 @@
         let depthAnchorMode = null; // 'top' | 'bottom' | null
         let panelSelectMode = false;
         let panelSelectStart = null; // { x, y } first corner of panel selection
+        let primaryRegionDrag = { active: false, edge: null };
 
         // OCR phrase search state (Jump to label)
         let ocrSearchMatches = [];
@@ -594,7 +595,7 @@
             }
         });
 
-        // Depth anchor click handling on image
+        // Depth anchor & panel/region interaction on image
         const imagePreview = document.getElementById('imagePreview');
         const mousePixelReadout = document.getElementById('mousePixelReadout');
 
@@ -619,6 +620,144 @@
             }
 
             mousePixelReadout.textContent = `Mouse pixel: X=${xImg}, Y=${yImg}${suffix}`;
+        });
+
+        // Start dragging primary-region edges when clicking near them
+        imagePreview.addEventListener('mousedown', (event) => {
+            if (!imageWidth || !imageHeight) return;
+            if (!primaryRegion || panelSelectMode || depthAnchorMode) return;
+
+            const imgRect = imagePreview.getBoundingClientRect();
+            if (!imgRect.width || !imgRect.height) return;
+
+            const leftPx = Number(primaryRegion.left_px);
+            const rightPx = Number(primaryRegion.right_px);
+            if (!Number.isFinite(leftPx) || !Number.isFinite(rightPx) || rightPx <= leftPx) return;
+
+            const offsetX = event.clientX - imgRect.left;
+            const offsetY = event.clientY - imgRect.top;
+
+            let bestEdge = null;
+            let bestDist = Infinity;
+
+            // Horizontal edges (left/right) in screen space
+            const scaleX = imgRect.width / imageWidth;
+            const leftDom = leftPx * scaleX;
+            const rightDom = rightPx * scaleX;
+            const edgeMarginX = 6; // px
+
+            const distLeft = Math.abs(offsetX - leftDom);
+            if (distLeft <= edgeMarginX && distLeft < bestDist) {
+                bestEdge = 'left';
+                bestDist = distLeft;
+            }
+            const distRight = Math.abs(offsetX - rightDom);
+            if (distRight <= edgeMarginX && distRight < bestDist) {
+                bestEdge = 'right';
+                bestDist = distRight;
+            }
+
+            // Vertical edges (top/bottom) derived from current depth config
+            const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
+            if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
+                const scaleY = imgRect.height / imageHeight;
+                const topDom = cfg.top_px * scaleY;
+                const bottomDom = cfg.bottom_px * scaleY;
+                const edgeMarginY = 6; // px
+
+                const distTop = Math.abs(offsetY - topDom);
+                if (distTop <= edgeMarginY && distTop < bestDist) {
+                    bestEdge = 'top';
+                    bestDist = distTop;
+                }
+                const distBottom = Math.abs(offsetY - bottomDom);
+                if (distBottom <= edgeMarginY && distBottom < bestDist) {
+                    bestEdge = 'bottom';
+                    bestDist = distBottom;
+                }
+            }
+
+            if (!bestEdge) return;
+
+            primaryRegionDrag.active = true;
+            primaryRegionDrag.edge = bestEdge;
+            event.preventDefault();
+        });
+
+        // Drag primary-region edges while mouse is down
+        document.addEventListener('mousemove', (event) => {
+            if (!primaryRegionDrag.active || !primaryRegion || !imageWidth || !imageHeight) return;
+
+            const imgRect = imagePreview.getBoundingClientRect();
+            if (!imgRect.width || !imgRect.height) return;
+
+            const edge = primaryRegionDrag.edge;
+
+            if (edge === 'left' || edge === 'right') {
+                const x = event.clientX - imgRect.left;
+                const xClamped = Math.max(0, Math.min(imgRect.width, x));
+                const xNorm = xClamped / imgRect.width;
+                const xImg = Math.round(xNorm * (imageWidth - 1));
+
+                if (edge === 'left') {
+                    primaryRegion.left_px = Math.min(xImg, Number(primaryRegion.right_px) - 1);
+                } else if (edge === 'right') {
+                    primaryRegion.right_px = Math.max(xImg, Number(primaryRegion.left_px) + 1);
+                }
+            } else if (edge === 'top' || edge === 'bottom') {
+                const topPxInput = document.getElementById('topPx');
+                const bottomPxInput = document.getElementById('bottomPx');
+                if (!topPxInput || !bottomPxInput) return;
+
+                const y = event.clientY - imgRect.top;
+                const yClamped = Math.max(0, Math.min(imgRect.height, y));
+                const yNorm = yClamped / imgRect.height;
+                const yImg = Math.round(yNorm * (imageHeight - 1));
+
+                let topVal = parseFloat(topPxInput.value);
+                let bottomVal = parseFloat(bottomPxInput.value);
+                if (!Number.isFinite(topVal)) topVal = 0;
+                if (!Number.isFinite(bottomVal)) bottomVal = imageHeight - 1;
+
+                if (edge === 'top') {
+                    const newTop = Math.min(yImg, bottomVal - 1);
+                    topPxInput.value = newTop;
+                } else {
+                    const newBottom = Math.max(yImg, topVal + 1);
+                    bottomPxInput.value = newBottom;
+                }
+            }
+
+            renderDepthOverlays();
+            renderPrimaryRegionOverlay();
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!primaryRegionDrag.active) return;
+            primaryRegionDrag.active = false;
+            primaryRegionDrag.edge = null;
+
+            if (!primaryRegion || !Array.isArray(allTracks) || !allTracks.length) return;
+
+            const left = Number(primaryRegion.left_px);
+            const right = Number(primaryRegion.right_px);
+            if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return;
+
+            const selected = [];
+            for (const t of allTracks) {
+                if (!Array.isArray(t) || t.length < 2) continue;
+                const cx = 0.5 * (Number(t[0]) + Number(t[1]));
+                if (!Number.isFinite(cx)) continue;
+                if (cx >= left && cx <= right) selected.push(t);
+            }
+            detectedTracks = selected;
+
+            autoConfigureCurves();
+            generateCurveInputs();
+            applyOcrSuggestions();
+            renderPrimaryRegionOverlay();
+            renderDepthOverlays();
+            showStatus(`Using ${detectedTracks.length || 0} tracks in selected panel.`, 'success');
         });
 
         imagePreview.addEventListener('mouseleave', () => {
@@ -1333,12 +1472,22 @@
             const xDom = leftPx * scaleX;
             const widthDom = (rightPx - leftPx) * scaleX;
 
+            // Vertical placement follows the current depth pixel configuration, if valid.
+            let topDom = 0;
+            let heightDom = rect.height;
+            const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
+            if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
+                const scaleY = rect.height / imageHeight;
+                topDom = cfg.top_px * scaleY;
+                heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
+            }
+
             const box = document.createElement('div');
             box.className = 'primary-region-overlay';
             box.style.left = `${xDom}px`;
-            box.style.top = `0px`;
+            box.style.top = `${topDom}px`;
             box.style.width = `${widthDom}px`;
-            box.style.height = `${rect.height}px`;
+            box.style.height = `${heightDom}px`;
             overlay.appendChild(box);
         }
 
