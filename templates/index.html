@@ -334,7 +334,11 @@
                 </div>
                 <div class="form-group" style="margin-top: 8px; max-width: 420px;">
                     <label>Select log panel</label>
-                    <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="beginPanelSelection()">Select panel from image</button>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px;">
+                        <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="beginPanelSelection()">Select panel from image</button>
+                        <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="clearPanelSelection()">Clear selection</button>
+                    </div>
+                    <div class="hint-text" id="selectionSummary">No panel selected. Using full image width and depth.</div>
                     <div class="hint-text">Click and drag directly on the image to draw a selection box around the log copy you want to digitize.</div>
                 </div>
                 <div id="overlay" style="margin-top: 14px;">
@@ -471,6 +475,76 @@
             primaryRegion = null;
             clearPrimaryRegionOverlay();
             showStatus('Click and drag on the image to draw a selection rectangle for the panel you want to digitize.', 'info');
+            updateSelectionSummary();
+        }
+
+        function clearPanelSelection() {
+            panelSelectMode = false;
+            panelSelectStart = null;
+            primaryRegionDrag.active = false;
+            primaryRegionDrag.edge = null;
+            primaryRegion = null;
+
+            if (Array.isArray(allTracks)) {
+                detectedTracks = allTracks.slice();
+            }
+
+            const topPxInput = document.getElementById('topPx');
+            const bottomPxInput = document.getElementById('bottomPx');
+            if (topPxInput && bottomPxInput && imageHeight) {
+                topPxInput.value = 0;
+                bottomPxInput.value = imageHeight - 1;
+            }
+
+            clearPrimaryRegionOverlay();
+            renderDepthOverlays();
+
+            autoConfigureCurves();
+            generateCurveInputs();
+            applyOcrSuggestions();
+            renderAiInsights();
+            updateSelectionSummary();
+            showStatus('Cleared panel selection: using full image width and depth.', 'info');
+        }
+
+        function updateSelectionSummary() {
+            const summaryEl = document.getElementById('selectionSummary');
+            if (!summaryEl) return;
+
+            if (!imageWidth || !imageHeight) {
+                summaryEl.textContent = 'No image loaded.';
+                return;
+            }
+
+            const topPxInput = document.getElementById('topPx');
+            const bottomPxInput = document.getElementById('bottomPx');
+            const topVal = topPxInput ? parseFloat(topPxInput.value) : NaN;
+            const bottomVal = bottomPxInput ? parseFloat(bottomPxInput.value) : NaN;
+
+            const hasRegion = primaryRegion &&
+                Number.isFinite(Number(primaryRegion.left_px)) &&
+                Number.isFinite(Number(primaryRegion.right_px)) &&
+                Number(primaryRegion.right_px) > Number(primaryRegion.left_px);
+
+            const usingFullDepth = !Number.isFinite(topVal) || !Number.isFinite(bottomVal) ||
+                (Math.round(topVal) <= 0 && Math.round(bottomVal) >= imageHeight - 1);
+
+            const trackCount = Array.isArray(detectedTracks) ? detectedTracks.length : 0;
+
+            if (!hasRegion && usingFullDepth) {
+                summaryEl.textContent = 'No panel selected. Using full image width and depth.';
+                return;
+            }
+
+            const regionPart = hasRegion
+                ? `X: ${Math.round(primaryRegion.left_px)}–${Math.round(primaryRegion.right_px)}`
+                : 'full width';
+
+            const depthPart = (Number.isFinite(topVal) && Number.isFinite(bottomVal))
+                ? `Y: ${Math.round(topVal)}–${Math.round(bottomVal)}`
+                : 'full depth';
+
+            summaryEl.textContent = `Panel: ${regionPart}, ${depthPart} • Tracks in use: ${trackCount}`;
         }
 
         function snapDepthToLabels(yImg) {
@@ -685,6 +759,7 @@
 
             renderDepthOverlays();
             renderPrimaryRegionOverlay();
+            updateSelectionSummary();
         });
 
         document.addEventListener('mouseup', async () => {
@@ -785,6 +860,7 @@
 
                 renderPrimaryRegionOverlay();
                 renderDepthOverlays();
+                updateSelectionSummary();
                 showStatus(`Using ${detectedTracks.length || 0} tracks in selected panel.`, 'success');
                 return;
             }
@@ -918,6 +994,7 @@
                     showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}${sessionNote}`, 'success');
                     renderAiInsights();
                     renderDepthOverlays();
+                    updateSelectionSummary();
                 } else {
                     showStatus('❌ Error: ' + data.error, 'error');
                 }
