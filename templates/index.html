@@ -723,12 +723,20 @@
 
         function syncCurveTypeToLabels(curveIndex) {
             const typeEl = document.getElementById(`type${curveIndex}`);
+            const displayNameEl = document.getElementById(`name${curveIndex}`);
             const lasMnemonicEl = document.getElementById(`lasMnemonic${curveIndex}`);
             const lasUnitEl = document.getElementById(`lasUnit${curveIndex}`);
             if (!typeEl || !lasMnemonicEl || !lasUnitEl) return;
 
             const typeVal = typeEl.value;
             const defaults = curveTypeDefaults[typeVal] || {};
+            
+            // Sync display name to match curve type mnemonic
+            if (displayNameEl && defaults.mnemonic) {
+                displayNameEl.value = defaults.mnemonic;
+            }
+            
+            // Sync LAS mnemonic and unit
             if (defaults.mnemonic) {
                 lasMnemonicEl.value = defaults.mnemonic;
             }
