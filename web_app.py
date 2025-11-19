@@ -848,20 +848,37 @@ def build_ocr_suggestions(numeric_entries):
 
     depth_hint = None
     if len(depth_candidates) >= 2:
-        # Use all detected depth labels to fit a simple linear scale
-        ys = np.array([d['y'] for d in depth_candidates], dtype=np.float32)
-        vals = np.array([d['value'] for d in depth_candidates], dtype=np.float32)
+        # Filter out obviously non-depth values (e.g., huge magnitudes that would
+        # produce spans like 700000 to -200000). If filtering removes everything,
+        # fall back to the original set.
+        filtered = [d for d in depth_candidates if abs(d['value']) <= 100000]
+        use_entries = filtered if len(filtered) >= 2 else depth_candidates
+
+        # Use detected depth labels to fit a simple linear scale
+        ys = np.array([d['y'] for d in use_entries], dtype=np.float32)
+        vals = np.array([d['value'] for d in use_entries], dtype=np.float32)
 
         try:
-            # depth ≈ a * pixel_y + b
+            # depth  a * pixel_y + b
             a, b = np.polyfit(ys, vals, 1)
             y_top = float(ys.min())
             y_bottom = float(ys.max())
             top_depth_fit = float(a * y_top + b)
             bottom_depth_fit = float(a * y_bottom + b)
 
-            # Ensure we have a sensible span
-            if y_bottom > y_top and bottom_depth_fit != top_depth_fit:
+            # Ensure we have a sensible span and that depth is reasonably
+            # monotonic with pixel position.
+            span_val = abs(bottom_depth_fit - top_depth_fit)
+            max_span = 100000.0  # reject clearly insane ranges
+            min_span = 5.0       # avoid noise from tiny spans
+            ok_span = (span_val >= min_span and span_val <= max_span)
+
+            corr = np.corrcoef(ys, vals)[0, 1] if ys.size >= 2 else 1.0
+            ok_corr = np.isfinite(corr) and abs(corr) >= 0.9
+
+            ok_magnitude = all(abs(v) <= 1e6 for v in (top_depth_fit, bottom_depth_fit))
+
+            if y_bottom > y_top and top_depth_fit != bottom_depth_fit and ok_span and ok_corr and ok_magnitude:
                 depth_hint = {
                     'top_depth': top_depth_fit,
                     'bottom_depth': bottom_depth_fit,
@@ -873,10 +890,18 @@ def build_ocr_suggestions(numeric_entries):
                     ]
                 }
         except Exception:
-            # Fallback to using just the first/last labels if fitting fails
+            # Fallback to using just the first/last labels if fitting fails,
+            # but still reject clearly unreasonable spans.
             top = depth_candidates[0]
             bottom = depth_candidates[-1]
-            if bottom['y'] > top['y'] and bottom['value'] != top['value']:
+            span_val = abs(bottom['value'] - top['value'])
+            if (
+                bottom['y'] > top['y']
+                and bottom['value'] != top['value']
+                and span_val >= 5.0
+                and span_val <= 100000.0
+                and all(abs(v) <= 1e6 for v in (top['value'], bottom['value']))
+            ):
                 depth_hint = {
                     'top_depth': top['value'],
                     'bottom_depth': bottom['value'],
@@ -905,10 +930,65 @@ def build_ocr_suggestions(numeric_entries):
                     'sample_value': float(np.mean([p['value'] for p in chunk]))
                 })
 
+    # Try to refine depths using header/table information. Many logs print a
+    # small table with "Top" / "Bottom" / "Total depth" values in ft near the
+    # top of the page. We look only in that header band and only at numbers that
+    # look like depths in feet (e.g. 4449.90 ft, 10026.53 ft), ignoring other
+    # units like us/ft or lbf.
+    header_top_val = None
+    header_bottom_val = None
+    if sorted_entries:
+        y_vals_all = [e['y'] for e in sorted_entries]
+        if y_vals_all:
+            y_min = min(y_vals_all)
+            y_max = max(y_vals_all)
+            # Top 25% of text as a rough "header" band
+            band_cut = y_min + 0.25 * (y_max - y_min)
+
+            header_depth_vals = []
+            for e in sorted_entries:
+                if e['y'] > band_cut:
+                    continue
+                text_l = str(e.get('text', '')).lower()
+                val = e.get('value')
+                if not np.isfinite(val):
+                    continue
+                # Depths in feet are typically hundreds to tens of thousands of
+                # units, not tiny (0.0) and not enormous.
+                if abs(val) < 100 or abs(val) > 50000:
+                    continue
+                # Require an explicit "ft" marker, but avoid sonic units like
+                # us/ft.
+                if 'ft' not in text_l:
+                    continue
+                if 'us/ft' in text_l or 'ms/ft' in text_l:
+                    continue
+                header_depth_vals.append(float(val))
+
+            if header_depth_vals:
+                header_depth_vals.sort()
+                if len(header_depth_vals) >= 2:
+                    header_top_val = header_depth_vals[0]
+                    header_bottom_val = header_depth_vals[-1]
+                else:
+                    # Only a single header depth (e.g. "Total Depth @ 10015 ft")
+                    header_top_val = header_bottom_val = header_depth_vals[0]
+
+    if depth_hint and header_top_val is not None and header_bottom_val is not None:
+        # Override the fitted depths so they match the header values, while
+        # preserving the original orientation (increasing or decreasing depth).
+        d_top = float(depth_hint['top_depth'])
+        d_bottom = float(depth_hint['bottom_depth'])
+        if d_top <= d_bottom:
+            depth_hint['top_depth'] = header_top_val
+            depth_hint['bottom_depth'] = header_bottom_val
+        else:
+            depth_hint['top_depth'] = header_bottom_val
+            depth_hint['bottom_depth'] = header_top_val
+
     suggestions = {}
     if depth_hint:
         suggestions['depth'] = depth_hint
-        # Also expose the raw depth label points for snapping in the UI
         labels = depth_hint.get('fit_labels') or [
             {'depth': d['value'], 'y_px': d['y']} for d in depth_candidates
         ]
