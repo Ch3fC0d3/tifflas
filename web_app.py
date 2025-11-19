@@ -1565,6 +1565,45 @@ def test_ai():
         })
 
 
+@app.route('/list-gemini-models')
+def list_gemini_models():
+    """List available Gemini models from the API."""
+    if not GEMINI_API_KEY:
+        return jsonify({'error': 'GEMINI_API_KEY not set'}), 400
+    
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1/models?key={GEMINI_API_KEY}"
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            models = data.get('models', [])
+            # Filter for models that support generateContent
+            generate_models = [
+                {
+                    'name': m.get('name', ''),
+                    'displayName': m.get('displayName', ''),
+                    'supportedMethods': m.get('supportedGenerationMethods', [])
+                }
+                for m in models
+                if 'generateContent' in m.get('supportedGenerationMethods', [])
+            ]
+            return jsonify({
+                'success': True,
+                'models': generate_models,
+                'total': len(generate_models)
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f"{resp.status_code} {resp.text}"
+            })
+    except Exception as exc:
+        return jsonify({
+            'success': False,
+            'error': str(exc)
+        })
+
+
 @app.route('/ask_ai', methods=['POST'])
 def ask_ai():
     """Chat-style endpoint: answer a question about the current log using ai_payload.
