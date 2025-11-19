@@ -92,7 +92,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL_ID = os.getenv("OPENAI_MODEL_ID") or os.getenv("OPENAI_MODEL")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID") or "gemini-1.5-flash"
+GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID") or "models/gemini-2.0-flash"
 
 APP_VERSION = os.environ.get("APP_VERSION", "dev")
 APP_BUILD_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -409,8 +409,9 @@ def call_hf_curve_analysis(ai_payload):
     if GEMINI_API_KEY and GEMINI_MODEL_ID:
         try:
             # Use REST API directly to avoid SDK version issues
-            model_name = GEMINI_MODEL_ID.replace('models/', '') if GEMINI_MODEL_ID.startswith('models/') else GEMINI_MODEL_ID
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            # Model ID should include 'models/' prefix (e.g., 'models/gemini-2.0-flash')
+            model_name = GEMINI_MODEL_ID if GEMINI_MODEL_ID.startswith('models/') else f'models/{GEMINI_MODEL_ID}'
+            url = f"https://generativelanguage.googleapis.com/v1/{model_name}:generateContent?key={GEMINI_API_KEY}"
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}]
             }
@@ -508,8 +509,9 @@ def call_hf_curve_chat(ai_payload, question):
     if GEMINI_API_KEY and GEMINI_MODEL_ID:
         try:
             # Use REST API directly to avoid SDK version issues
-            model_name = GEMINI_MODEL_ID.replace('models/', '') if GEMINI_MODEL_ID.startswith('models/') else GEMINI_MODEL_ID
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            # Model ID should include 'models/' prefix (e.g., 'models/gemini-2.0-flash')
+            model_name = GEMINI_MODEL_ID if GEMINI_MODEL_ID.startswith('models/') else f'models/{GEMINI_MODEL_ID}'
+            url = f"https://generativelanguage.googleapis.com/v1/{model_name}:generateContent?key={GEMINI_API_KEY}"
             payload = {
                 "contents": [{"parts": [{"text": payload_text}]}]
             }
@@ -1458,8 +1460,9 @@ def test_ai():
     if GEMINI_API_KEY and GEMINI_MODEL_ID:
         try:
             # Use REST API directly to avoid SDK version issues
-            model_name = GEMINI_MODEL_ID.replace('models/', '') if GEMINI_MODEL_ID.startswith('models/') else GEMINI_MODEL_ID
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            # Model ID should include 'models/' prefix (e.g., 'models/gemini-2.0-flash')
+            model_name = GEMINI_MODEL_ID if GEMINI_MODEL_ID.startswith('models/') else f'models/{GEMINI_MODEL_ID}'
+            url = f"https://generativelanguage.googleapis.com/v1/{model_name}:generateContent?key={GEMINI_API_KEY}"
             payload = {
                 "contents": [{"parts": [{"text": "What is 2+2?"}]}]
             }
