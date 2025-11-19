@@ -1540,9 +1540,9 @@ def ask_ai():
 
     answer = call_hf_curve_chat(ai_payload, question)
     if answer is None:
-        return jsonify({'success': False, 'error': 'AI chat is not configured (missing HF_API_TOKEN or HF_MODEL_ID).'}), 500
+        return jsonify({'success': False, 'error': 'AI chat is not configured. Please set GEMINI_API_KEY, OPENAI_API_KEY, or HF_API_TOKEN in your environment.'}), 500
     
-    # If answer contains error message from HF API, still return success but show the error
+    # If answer contains error message from AI API, still return success but show the error
     return jsonify({'success': True, 'answer': answer})
 
 if __name__ == '__main__':
