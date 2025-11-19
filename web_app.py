@@ -945,7 +945,8 @@ def build_ocr_suggestions(numeric_entries):
             # Top 25% of text as a rough "header" band
             band_cut = y_min + 0.25 * (y_max - y_min)
 
-            header_depth_vals = []
+            header_depth_vals_strict = []  # require explicit "ft" (not us/ft)
+            header_depth_vals_loose = []   # any plausible depth magnitude
             for e in sorted_entries:
                 if e['y'] > band_cut:
                     continue
@@ -957,22 +958,32 @@ def build_ocr_suggestions(numeric_entries):
                 # units, not tiny (0.0) and not enormous.
                 if abs(val) < 100 or abs(val) > 50000:
                     continue
-                # Require an explicit "ft" marker, but avoid sonic units like
-                # us/ft.
-                if 'ft' not in text_l:
-                    continue
-                if 'us/ft' in text_l or 'ms/ft' in text_l:
-                    continue
-                header_depth_vals.append(float(val))
 
-            if header_depth_vals:
-                header_depth_vals.sort()
-                if len(header_depth_vals) >= 2:
-                    header_top_val = header_depth_vals[0]
-                    header_bottom_val = header_depth_vals[-1]
+                header_depth_vals_loose.append(float(val))
+
+                # Strict: same token mentions "ft" but not sonic units.
+                if 'ft' in text_l and 'us/ft' not in text_l and 'ms/ft' not in text_l:
+                    header_depth_vals_strict.append(float(val))
+
+            use_vals = header_depth_vals_strict
+            if not use_vals and len(header_depth_vals_loose) >= 2:
+                # Fallback: no explicit "ft" nearby, but we do see multiple
+                # plausible depth values in the header band. Use the min/max
+                # only if they span a reasonable interval so we do not mistake
+                # small curve scales (e.g. 1.95–2.95) for depths.
+                header_depth_vals_loose.sort()
+                span = header_depth_vals_loose[-1] - header_depth_vals_loose[0]
+                if span >= 200.0:  # require at least a few hundred feet span
+                    use_vals = header_depth_vals_loose
+
+            if use_vals:
+                use_vals.sort()
+                if len(use_vals) >= 2:
+                    header_top_val = use_vals[0]
+                    header_bottom_val = use_vals[-1]
                 else:
                     # Only a single header depth (e.g. "Total Depth @ 10015 ft")
-                    header_top_val = header_bottom_val = header_depth_vals[0]
+                    header_top_val = header_bottom_val = use_vals[0]
 
     if depth_hint and header_top_val is not None and header_bottom_val is not None:
         # Override the fitted depths so they match the header values, while
