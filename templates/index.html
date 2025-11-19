@@ -396,7 +396,9 @@
                     <input type="number" id="numCurves" value="3" min="1" max="6">
                     <button class="btn" onclick="generateCurveInputs()" style="margin-top: 10px;">Generate Curve Fields</button>
                     <button class="btn" type="button" onclick="autoFillCurveTypes()" style="margin-top: 10px; margin-left: 8px;">✨ Auto-fill curve types</button>
+                    <button class="btn" type="button" onclick="aiCalibratePanel()" style="margin-top: 10px; margin-left: 8px;">⭐ AI calibrate panel</button>
                     <div class="hint-text" style="margin-top: 4px;">Uses scale ranges (GR/RHOB/NPHI/DT) to guess curve types for each track; you can still edit them.</div>
+                    <div class="hint-text" style="margin-top: 4px;">Uses Vision + LLM to propose depth axis and all track calibrations from the selected panel; you can still edit them.</div>
                 </div>
 
                 <div id="curvesContainer"></div>
@@ -571,7 +573,7 @@
                 }
             }
             if (!best) return null;
-            const maxSnap = imageHeight ? Math.max(10, imageHeight * 0.02) : 30;
+            const maxSnap = imageHeight ? Math.max(40, imageHeight * 0.02) : 40;
             if (bestDy > maxSnap) return null;
             const snappedY = Math.round(Number(best.y_px));
             const snappedDepth = Number(best.depth);
@@ -1068,6 +1070,120 @@
             updateCurveScaleHints(true);
             generateValidationReport();
             showStatus('Auto-filled curve types based on scale ranges. Please review before digitizing.', 'info');
+        }
+
+        async function aiCalibratePanel() {
+            if (!uploadedImage || !imageWidth || !imageHeight) {
+                showStatus('Please upload an image first.', 'info');
+                return;
+            }
+
+            if (!primaryRegion || !Number.isFinite(primaryRegion.left_px) || !Number.isFinite(primaryRegion.right_px)) {
+                showStatus('Please select a panel first (click "Select panel from image" and drag a box).', 'info');
+                return;
+            }
+
+            const topPxInput = document.getElementById('topPx');
+            const bottomPxInput = document.getElementById('bottomPx');
+            const topPx = topPxInput ? parseFloat(topPxInput.value) : 0;
+            const bottomPx = bottomPxInput ? parseFloat(bottomPxInput.value) : imageHeight - 1;
+
+            if (!Number.isFinite(topPx) || !Number.isFinite(bottomPx) || bottomPx <= topPx) {
+                showStatus('Invalid depth pixel range; please select a panel first.', 'info');
+                return;
+            }
+
+            showStatus('⏳ Asking AI to calibrate panel (Vision + LLM)...', 'info');
+
+            try {
+                const resp = await fetch('/propose_calibration', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image: uploadedImage,
+                        region: {
+                            left_px: primaryRegion.left_px,
+                            right_px: primaryRegion.right_px,
+                            top_px: topPx,
+                            bottom_px: bottomPx,
+                        }
+                    })
+                });
+
+                const data = await resp.json();
+                if (!data.success) {
+                    showStatus(`AI calibration failed: ${data.error || 'unknown error'}`, 'error');
+                    return;
+                }
+
+                const calib = data.calibration || {};
+                const depthAxis = calib.depth_axis || {};
+                const tracks = calib.tracks || [];
+
+                // Apply depth_axis
+                if (Number.isFinite(depthAxis.top_pixel)) {
+                    topPxInput.value = Math.round(depthAxis.top_pixel);
+                }
+                if (Number.isFinite(depthAxis.bottom_pixel)) {
+                    bottomPxInput.value = Math.round(depthAxis.bottom_pixel);
+                }
+                if (Number.isFinite(depthAxis.top_depth)) {
+                    document.getElementById('topDepth').value = depthAxis.top_depth;
+                }
+                if (Number.isFinite(depthAxis.bottom_depth)) {
+                    document.getElementById('bottomDepth').value = depthAxis.bottom_depth;
+                }
+
+                // Apply tracks
+                if (tracks.length > 0) {
+                    const numCurvesInput = document.getElementById('numCurves');
+                    numCurvesInput.value = Math.min(6, tracks.length);
+                    generateCurveInputs();
+
+                    for (let i = 0; i < Math.min(6, tracks.length); i++) {
+                        const t = tracks[i];
+                        if (Number.isFinite(t.left_x)) {
+                            const leftPxEl = document.getElementById(`leftPx${i}`);
+                            if (leftPxEl) leftPxEl.value = Math.round(t.left_x);
+                        }
+                        if (Number.isFinite(t.right_x)) {
+                            const rightPxEl = document.getElementById(`rightPx${i}`);
+                            if (rightPxEl) rightPxEl.value = Math.round(t.right_x);
+                        }
+                        if (Number.isFinite(t.scale_min)) {
+                            const leftValEl = document.getElementById(`leftVal${i}`);
+                            if (leftValEl) leftValEl.value = t.scale_min;
+                        }
+                        if (Number.isFinite(t.scale_max)) {
+                            const rightValEl = document.getElementById(`rightVal${i}`);
+                            if (rightValEl) rightValEl.value = t.scale_max;
+                        }
+                        if (t.name) {
+                            const typeEl = document.getElementById(`type${i}`);
+                            if (typeEl) {
+                                const nameUpper = t.name.toUpperCase();
+                                if (['GR', 'RHOB', 'NPHI', 'DT', 'CALI', 'SP'].includes(nameUpper)) {
+                                    typeEl.value = nameUpper;
+                                    syncCurveTypeToLabels(i);
+                                }
+                            }
+                        }
+                        if (t.color_hint) {
+                            const modeEl = document.getElementById(`mode${i}`);
+                            if (modeEl && ['black', 'red', 'blue', 'green'].includes(t.color_hint)) {
+                                modeEl.value = t.color_hint;
+                            }
+                        }
+                    }
+                }
+
+                renderDepthOverlays();
+                renderPrimaryRegionOverlay();
+                updateCurveScaleHints();
+                showStatus(`✅ AI calibration applied: ${tracks.length} tracks proposed. Review and adjust as needed.`, 'success');
+            } catch (err) {
+                showStatus(`AI calibration request failed: ${err.message}`, 'error');
+            }
         }
 
         function generateValidationReport() {

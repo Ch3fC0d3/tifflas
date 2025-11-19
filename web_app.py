@@ -578,6 +578,176 @@ def call_hf_curve_chat(ai_payload, question):
         return f"AI request failed: {str(exc)}"
 
     return out if isinstance(out, str) else str(out)
+
+
+def _extract_json_object(text: str):
+    """Best-effort helper to parse a single JSON object from a text response.
+
+    Many LLMs sometimes wrap JSON in Markdown or add prose. We first try to
+    parse the whole string, then fall back to the first {...} block.
+    """
+    if not text:
+        return None
+    text = str(text).strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    first = text.find("{")
+    last = text.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        candidate = text[first : last + 1]
+        try:
+            return json.loads(candidate)
+        except Exception:
+            return None
+    return None
+
+
+def call_ai_calibration(calib_payload):
+    """Ask an LLM to propose depth_axis and track calibration JSON.
+
+    calib_payload is a small dict with fields like:
+        {
+          "image": {"width_px": W, "height_px": H},
+          "depth_label_candidates": [{"value": ..., "x_px": ..., "y_px": ...}, ...],
+          "header_text_boxes": [{"text": "GR", "x_px": ..., "y_px": ...}, ...],
+        }
+
+    Returns a Python dict with optional keys:
+        {
+          "depth_axis": {
+            "top_depth": float,
+            "bottom_depth": float,
+            "top_pixel": float,
+            "bottom_pixel": float,
+          },
+          "tracks": [
+            {
+              "name": "GR",
+              "left_x": float,
+              "right_x": float,
+              "scale_min": float,
+              "scale_max": float,
+              "hot_side": "left" | "right",
+              "color_hint": "black" | "red" | "blue" | "green" | null,
+            },
+            ...
+          ]
+        }
+    """
+    if not calib_payload:
+        return None
+
+    schema_hint = (
+        "You are a petrophysical log calibration assistant. Given OCR-derived "
+        "depth label candidates and header text boxes for a single raster log "
+        "panel, infer a plausible depth axis and track calibration.\n\n"
+        "Always respond with JSON ONLY, no prose, using this schema:\n\n"
+        "{\n"
+        "  \"depth_axis\": {\n"
+        "    \"top_depth\": number,\n"
+        "    \"bottom_depth\": number,\n"
+        "    \"top_pixel\": number,\n"
+        "    \"bottom_pixel\": number\n"
+        "  },\n"
+        "  \"tracks\": [\n"
+        "    {\n"
+        "      \"name\": string,\n"
+        "      \"left_x\": number,\n"
+        "      \"right_x\": number,\n"
+        "      \"scale_min\": number,\n"
+        "      \"scale_max\": number,\n"
+        "      \"hot_side\": \"left\" or \"right\",\n"
+        "      \"color_hint\": string or null\n"
+        "    }\n"
+        "  ]\n"
+        "}\n\n"
+        "Pixels are in the coordinate system of the provided panel image, where\n"
+        "(0,0) is the top-left corner and Y increases downward. Depth should be\n"
+        "monotonic with pixel Y. Use typical petrophysical curve ranges (GR: 0-150 API,\n"
+        "RHOB: 1.95-2.95 g/cc, NPHI: -0.15-0.45 v/v, DT: 40-140 us/ft) when inferring\n"
+        "scale_min and scale_max. Identify curve names from header text (GR, GAMMA,\n"
+        "RHOB, DENS, NPHI, NEUT, DT, SONIC, etc.).\n\n"
+        "Here is the input JSON you should analyze:\n\n"
+    )
+
+    payload_text = schema_hint + json.dumps(calib_payload, indent=2)
+
+    # Prefer Gemini if configured
+    if GEMINI_API_KEY and GEMINI_MODEL_ID:
+        try:
+            model_name = GEMINI_MODEL_ID if GEMINI_MODEL_ID.startswith("models/") else f"models/{GEMINI_MODEL_ID}"
+            url = f"https://generativelanguage.googleapis.com/v1/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            body = {"contents": [{"parts": [{"text": payload_text}]}]}
+            resp = requests.post(url, json=body, timeout=40)
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    content = candidates[0].get("content", {})
+                    parts = content.get("parts", [])
+                    if parts:
+                        text = parts[0].get("text", "")
+                        calib = _extract_json_object(text)
+                        if isinstance(calib, dict):
+                            return calib
+            else:
+                print(f"Gemini API error (calibration): {resp.status_code} {resp.text}")
+        except Exception as exc:
+            print(f"Gemini API error (calibration): {exc}")
+
+    # Fallback to OpenAI if configured
+    if OPENAI_API_KEY and OPENAI_MODEL_ID:
+        try:
+            openai.api_key = OPENAI_API_KEY
+            messages = [
+                {"role": "system", "content": "You output JSON only."},
+                {"role": "user", "content": payload_text},
+            ]
+            resp = openai.ChatCompletion.create(
+                model=OPENAI_MODEL_ID,
+                messages=messages,
+                max_tokens=512,
+                temperature=0.1,
+            )
+            choices = resp.get("choices") or []
+            if choices:
+                msg = choices[0].get("message") or {}
+                content = msg.get("content") or ""
+                calib = _extract_json_object(content)
+                if isinstance(calib, dict):
+                    return calib
+        except Exception as exc:
+            print(f"OpenAI API error (calibration): {exc}")
+
+    # Fallback to Hugging Face text-generation if available
+    if not HF_API_TOKEN or not HF_MODEL_ID:
+        return None
+
+    try:
+        client = InferenceClient(provider="hf-inference", api_key=HF_API_TOKEN)
+    except Exception as exc:
+        print(f"HF InferenceClient init error (calibration): {exc}")
+        return None
+
+    try:
+        out = client.text_generation(
+            payload_text,
+            model=HF_MODEL_ID,
+            max_new_tokens=512,
+            temperature=0.1,
+        )
+        calib = _extract_json_object(out if isinstance(out, str) else str(out))
+        if isinstance(calib, dict):
+            return calib
+    except Exception as exc:
+        print(f"HF text_generation error (calibration): {exc}")
+
+    return None
+
+
 def hsv_red_mask(hsv_img):
     lower1, upper1 = np.array([0, 80, 80]), np.array([10, 255, 255])
     lower2, upper2 = np.array([170, 80, 80]), np.array([180, 255, 255])
@@ -824,6 +994,135 @@ def reanalyze_panel():
     })
 
 
+@app.route('/propose_calibration', methods=['POST'])
+def propose_calibration():
+    """Use Vision + LLM to propose depth_axis and track calibration for a selected panel.
+
+    Expects JSON with:
+      - image: data URL string
+      - region: { left_px, right_px, top_px, bottom_px } in image pixel coords
+    """
+    data = request.json or {}
+    image_data = data.get('image')
+    region = data.get('region') or {}
+
+    if not image_data or ',' not in image_data:
+        return jsonify({'success': False, 'error': 'Missing image data'}), 400
+
+    try:
+        img_payload = image_data.split(',', 1)[1]
+        img_bytes = base64.b64decode(img_payload)
+    except Exception:
+        return jsonify({'success': False, 'error': 'Invalid image data'}), 400
+
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        return jsonify({'success': False, 'error': 'Could not decode image'}), 400
+
+    H, W, _ = img.shape
+    try:
+        left = max(0, int(region.get('left_px', 0)))
+        right = min(W, int(region.get('right_px', W)))
+        top = max(0, int(region.get('top_px', 0)))
+        bottom = min(H, int(region.get('bottom_px', H)))
+    except Exception:
+        return jsonify({'success': False, 'error': 'Invalid region'}), 400
+
+    if right <= left or bottom <= top:
+        return jsonify({'success': False, 'error': 'Empty region'}), 400
+
+    # Crop to region
+    crop = img[top:bottom, left:right]
+    crop_h, crop_w, _ = crop.shape
+    ok, buf = cv2.imencode('.jpg', crop, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    if not ok:
+        return jsonify({'success': False, 'error': 'Failed to encode crop'}), 500
+
+    crop_bytes = buf.tobytes()
+
+    # Run Vision OCR on cropped panel
+    detected_text = detect_text_vision_api(crop_bytes)
+    raw_text = detected_text.get('raw', [])
+    numeric_entries = detected_text.get('numbers', [])
+
+    if not numeric_entries:
+        return jsonify({
+            'success': False,
+            'error': 'No numeric OCR entries found in selected panel; cannot propose calibration.'
+        }), 400
+
+    # Build calibration payload for the LLM
+    # 1) Depth label candidates: left-side numeric entries
+    xs_all = [float(e['x']) for e in numeric_entries if 'x' in e]
+    if xs_all:
+        min_x = min(xs_all)
+        max_x = max(xs_all)
+        span_x = max(max_x - min_x, 1.0)
+        depth_x_threshold = min_x + 0.35 * span_x
+    else:
+        depth_x_threshold = None
+
+    depth_label_candidates = []
+    for e in numeric_entries:
+        if depth_x_threshold is not None and float(e['x']) <= depth_x_threshold:
+            depth_label_candidates.append({
+                'value': float(e['value']),
+                'x_px': float(e['x']),
+                'y_px': float(e['y']),
+            })
+
+    # 2) Header text boxes: text in top ~30% of crop
+    y_vals_all = [float(e['y']) for e in numeric_entries if 'y' in e]
+    if y_vals_all:
+        y_min = min(y_vals_all)
+        y_max = max(y_vals_all)
+        header_threshold = y_min + 0.3 * (y_max - y_min)
+    else:
+        header_threshold = crop_h * 0.3
+
+    header_text_boxes = []
+    for entry in raw_text:
+        text = (entry.get('text') or '').strip()
+        if not text:
+            continue
+        verts = entry.get('vertices') or []
+        ys = [v.get('y') for v in verts if isinstance(v, dict) and 'y' in v]
+        xs = [v.get('x') for v in verts if isinstance(v, dict) and 'x' in v]
+        if not ys or not xs:
+            continue
+        y_center = float(sum(ys)) / len(ys)
+        x_center = float(sum(xs)) / len(xs)
+        if y_center <= header_threshold:
+            header_text_boxes.append({
+                'text': text,
+                'x_px': x_center,
+                'y_px': y_center,
+            })
+
+    calib_payload = {
+        'image': {
+            'width_px': crop_w,
+            'height_px': crop_h,
+        },
+        'depth_label_candidates': depth_label_candidates,
+        'header_text_boxes': header_text_boxes,
+    }
+
+    # Call LLM to propose calibration
+    calibration = call_ai_calibration(calib_payload)
+    if not calibration:
+        return jsonify({
+            'success': False,
+            'error': 'AI calibration failed or returned no result. Check server logs.'
+        }), 500
+
+    return jsonify({
+        'success': True,
+        'calibration': calibration,
+    })
+
+
 def build_ocr_suggestions(numeric_entries):
     """Derive depth and curve hints from numeric OCR entries."""
     if not numeric_entries:
@@ -835,13 +1134,29 @@ def build_ocr_suggestions(numeric_entries):
     depth_candidates = []
     curve_candidates = []
 
+    # Estimate horizontal extent of all numeric text so we can treat roughly
+    # the left ~35% as potential depth-scale labels and the rest as curve
+    # values. This mirrors the reference approach that only uses left-side
+    # numbers for depth.
+    xs_all = [float(e['x']) for e in sorted_entries if 'x' in e]
+    if xs_all:
+        min_x = min(xs_all)
+        max_x = max(xs_all)
+        span_x = max(max_x - min_x, 1.0)
+        depth_x_threshold = min_x + 0.35 * span_x
+    else:
+        depth_x_threshold = None
+
     for entry in sorted_entries:
         value = entry['value']
         y = entry['y']
         x = entry['x']
 
-        # Heuristic: numbers near image left edge likely depth scale
-        if x < 0.25 * max(e['x'] for e in sorted_entries + [{'x': x}]):
+        use_as_depth = False
+        if depth_x_threshold is not None:
+            use_as_depth = float(x) <= depth_x_threshold
+
+        if use_as_depth:
             depth_candidates.append({'value': value, 'y': y})
         else:
             curve_candidates.append({'value': value, 'x': x, 'y': y})
@@ -1248,13 +1563,15 @@ def compute_depth_warnings(depth_cfg, image_height):
 
     if depth_span == 0:
         warnings.append("Top and bottom depths are identical; depth range is zero.")
-    else:
-        depth_per_pixel = depth_span / max(1.0, pix_span)
-        # Heuristic: flag extremely small or large scales
-        if abs(depth_per_pixel) < 1e-3:
-            warnings.append(f"Depth scale ({depth_per_pixel:.4f} per pixel) is extremely small; check depth values.")
-        if abs(depth_per_pixel) > 100.0:
-            warnings.append(f"Depth scale ({depth_per_pixel:.2f} per pixel) is extremely large; check depth values.")
+    elif pix_span > 0:
+        depth_per_pixel = depth_span / pix_span
+        # Heuristic similar to the reference compute_depth_scale usage:
+        # flag unusual but not impossible scales outside ~0.1–10 depth
+        # units per pixel so the user can double-check anchors.
+        if abs(depth_per_pixel) < 0.1 or abs(depth_per_pixel) > 10.0:
+            warnings.append(
+                f"Unusual depth scale (~{depth_per_pixel:.2f} depth units per pixel). Check anchors."
+            )
 
     if image_height and (top_px < 0 or bottom_px > image_height):
         warnings.append(f"Depth pixels ({top_px:.0f}–{bottom_px:.0f}) are outside image bounds (0–{image_height - 1}).")
