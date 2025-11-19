@@ -9,4 +9,3 @@ setuptools>=65.0.0
 requests>=2.31.0
 huggingface-hub>=0.25.0
 openai>=0.28.0,<1.0.0
-google-generativeai==0.3.2

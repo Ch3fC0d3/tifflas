@@ -24,7 +24,6 @@ import tempfile
 from datetime import datetime
 import requests
 import openai
-import google.generativeai as genai
 from huggingface_hub import InferenceClient
 
 # Try to import Google Vision API (optional)
@@ -409,14 +408,25 @@ def call_hf_curve_analysis(ai_payload):
     # Prefer Gemini if configured
     if GEMINI_API_KEY and GEMINI_MODEL_ID:
         try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            # Strip models/ prefix if present - SDK adds it automatically
+            # Use REST API directly to avoid SDK version issues
             model_name = GEMINI_MODEL_ID.replace('models/', '') if GEMINI_MODEL_ID.startswith('models/') else GEMINI_MODEL_ID
-            model = genai.GenerativeModel(model_name)
-            resp = model.generate_content(prompt)
-            text = getattr(resp, "text", None)
-            if text:
-                return str(text)
+            url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}]
+            }
+            resp = requests.post(url, json=payload, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get('candidates', [])
+                if candidates:
+                    content = candidates[0].get('content', {})
+                    parts = content.get('parts', [])
+                    if parts:
+                        text = parts[0].get('text', '')
+                        if text:
+                            return str(text)
+            else:
+                print(f"Gemini API error (analysis): {resp.status_code} {resp.text}")
         except Exception as exc:
             print(f"Gemini API error (analysis): {exc}")
 
@@ -497,14 +507,25 @@ def call_hf_curve_chat(ai_payload, question):
     # Prefer Gemini if configured
     if GEMINI_API_KEY and GEMINI_MODEL_ID:
         try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            # Strip models/ prefix if present - SDK adds it automatically
+            # Use REST API directly to avoid SDK version issues
             model_name = GEMINI_MODEL_ID.replace('models/', '') if GEMINI_MODEL_ID.startswith('models/') else GEMINI_MODEL_ID
-            model = genai.GenerativeModel(model_name)
-            resp = model.generate_content(payload_text)
-            text = getattr(resp, "text", None)
-            if text:
-                return str(text)
+            url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            payload = {
+                "contents": [{"parts": [{"text": payload_text}]}]
+            }
+            resp = requests.post(url, json=payload, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get('candidates', [])
+                if candidates:
+                    content = candidates[0].get('content', {})
+                    parts = content.get('parts', [])
+                    if parts:
+                        text = parts[0].get('text', '')
+                        if text:
+                            return str(text)
+            else:
+                print(f"Gemini API error (chat): {resp.status_code} {resp.text}")
         except Exception as exc:
             print(f"Gemini API error (chat): {exc}")
 
@@ -1436,18 +1457,33 @@ def test_ai():
     # Prefer Gemini if configured
     if GEMINI_API_KEY and GEMINI_MODEL_ID:
         try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            # Strip models/ prefix if present - SDK adds it automatically
+            # Use REST API directly to avoid SDK version issues
             model_name = GEMINI_MODEL_ID.replace('models/', '') if GEMINI_MODEL_ID.startswith('models/') else GEMINI_MODEL_ID
-            model = genai.GenerativeModel(model_name)
-            resp = model.generate_content("What is 2+2?")
-            text = getattr(resp, 'text', '') or ''
+            url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            payload = {
+                "contents": [{"parts": [{"text": "What is 2+2?"}]}]
+            }
+            resp = requests.post(url, json=payload, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get('candidates', [])
+                if candidates:
+                    content = candidates[0].get('content', {})
+                    parts = content.get('parts', [])
+                    if parts:
+                        text = parts[0].get('text', '')
+                        return jsonify({
+                            'success': True,
+                            'status_code': 200,
+                            'provider': 'gemini',
+                            'model': model_name,
+                            'response': text,
+                        })
             return jsonify({
-                'success': True,
-                'status_code': 200,
+                'success': False,
                 'provider': 'gemini',
                 'model': model_name,
-                'response': text,
+                'error': f"{resp.status_code} {resp.text}",
             })
         except Exception as exc:
             return jsonify({
