@@ -431,7 +431,7 @@
         let detectedText = null;
         let depthAnchorMode = null; // 'top' | 'bottom' | null
         let panelSelectMode = false;
-        let panelSelectLeft = null;
+        let panelSelectStart = null; // { x, y } first corner of panel selection
 
         // OCR phrase search state (Jump to label)
         let ocrSearchMatches = [];
@@ -465,8 +465,8 @@
 
         function beginPanelSelection() {
             panelSelectMode = true;
-            panelSelectLeft = null;
-            showStatus('Click once on the left edge and once on the right edge of the log panel you want to use.', 'info');
+            panelSelectStart = null;
+            showStatus('Click once in the top of the panel and once in the bottom of the same panel to select it.', 'info');
         }
 
         function snapDepthToLabels(yImg) {
@@ -628,12 +628,69 @@
         });
 
         imagePreview.addEventListener('click', (event) => {
-            if (!depthAnchorMode) return;
+            if (!imageWidth || !imageHeight) return;
 
             const rect = imagePreview.getBoundingClientRect();
-            const y = event.clientY - rect.top; // pixel in displayed image
-            const yNorm = y / rect.height;      // 0..1
+            if (!rect.width || !rect.height) return;
+
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const xNorm = x / rect.width;
+            const yNorm = y / rect.height;
+            const xImg = Math.round(xNorm * (imageWidth - 1));
             const yImg = Math.round(yNorm * (imageHeight - 1));
+
+            // Panel selection takes priority over depth anchors
+            if (panelSelectMode) {
+                if (!panelSelectStart) {
+                    // First corner
+                    panelSelectStart = { x: xImg, y: yImg };
+                    primaryRegion = { left_px: xImg, right_px: xImg + 1, track_indices: [] };
+                    renderPrimaryRegionOverlay();
+                    return;
+                } else {
+                    // Second corner defines full box
+                    const left = Math.min(panelSelectStart.x, xImg);
+                    const right = Math.max(panelSelectStart.x, xImg);
+                    const top = Math.min(panelSelectStart.y, yImg);
+                    const bottom = Math.max(panelSelectStart.y, yImg);
+
+                    primaryRegion = { left_px: left, right_px: right, track_indices: [] };
+
+                    // Filter tracks whose centers fall inside the horizontal band
+                    if (Array.isArray(allTracks) && allTracks.length) {
+                        const selected = [];
+                        for (const t of allTracks) {
+                            if (!Array.isArray(t) || t.length < 2) continue;
+                            const cx = 0.5 * (Number(t[0]) + Number(t[1]));
+                            if (!Number.isFinite(cx)) continue;
+                            if (cx >= left && cx <= right) selected.push(t);
+                        }
+                        detectedTracks = selected;
+                    }
+
+                    // Also set depth top/bottom pixels from the vertical extent
+                    const topPxInput = document.getElementById('topPx');
+                    const bottomPxInput = document.getElementById('bottomPx');
+                    if (topPxInput && bottomPxInput) {
+                        topPxInput.value = top;
+                        bottomPxInput.value = bottom;
+                    }
+
+                    panelSelectMode = false;
+                    panelSelectStart = null;
+
+                    autoConfigureCurves();
+                    generateCurveInputs();
+                    applyOcrSuggestions();
+                    renderPrimaryRegionOverlay();
+                    renderDepthOverlays();
+                    showStatus(`Using ${detectedTracks.length || 0} tracks in selected panel.`, 'success');
+                    return;
+                }
+            }
+
+            if (!depthAnchorMode) return;
 
             const snapped = snapDepthToLabels(yImg);
             const usedY = snapped ? snapped.y_px : yImg;
