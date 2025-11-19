@@ -162,6 +162,12 @@
             background: rgba(248, 113, 113, 0.25);
             pointer-events: none;
         }
+        .primary-region-overlay {
+            position: absolute;
+            border: 2px solid #3b82f6; /* blue */
+            background: rgba(59, 130, 246, 0.15);
+            pointer-events: none;
+        }
         .auto-corrected {
             background-color: #fff3cd !important;
             border-color: #ffc107 !important;
@@ -407,6 +413,7 @@
         let imageWidth = 0;
         let imageHeight = 0;
         let detectedTracks = [];
+        let primaryRegion = null; // { left_px, right_px, track_indices }
         let ocrSuggestions = null;
         let detectedText = null;
         let depthAnchorMode = null; // 'top' | 'bottom' | null
@@ -673,12 +680,14 @@
                     imageWidth = data.width;
                     imageHeight = data.height;
                     detectedTracks = data.tracks || [];
+                    primaryRegion = data.primary_region || null;
                     ocrSuggestions = data.ocr_suggestions || {};
                     detectedText = data.detected_text || null;
 
                     // Show preview
                     const imgEl = document.getElementById('imagePreview');
                     imgEl.onload = () => {
+                        renderPrimaryRegionOverlay();
                         renderLabelOverlays();
                         renderDepthOverlays();
                     };
@@ -1209,6 +1218,49 @@
             if (!overlay) return;
             const boxes = overlay.querySelectorAll('.phrase-highlight');
             boxes.forEach((el) => el.remove());
+        }
+
+        function clearPrimaryRegionOverlay() {
+            const overlay = document.getElementById('overlay');
+            if (!overlay) return;
+            const boxes = overlay.querySelectorAll('.primary-region-overlay');
+            boxes.forEach((el) => el.remove());
+        }
+
+        function renderPrimaryRegionOverlay() {
+            const overlay = document.getElementById('overlay');
+            const img = document.getElementById('imagePreview');
+            if (!overlay || !img || !primaryRegion || !imageWidth || !imageHeight) {
+                clearPrimaryRegionOverlay();
+                return;
+            }
+
+            const rect = img.getBoundingClientRect();
+            if (!rect.width || !rect.height) {
+                clearPrimaryRegionOverlay();
+                return;
+            }
+
+            const leftPx = Number(primaryRegion.left_px);
+            const rightPx = Number(primaryRegion.right_px);
+            if (!Number.isFinite(leftPx) || !Number.isFinite(rightPx) || rightPx <= leftPx) {
+                clearPrimaryRegionOverlay();
+                return;
+            }
+
+            clearPrimaryRegionOverlay();
+
+            const scaleX = rect.width / imageWidth;
+            const xDom = leftPx * scaleX;
+            const widthDom = (rightPx - leftPx) * scaleX;
+
+            const box = document.createElement('div');
+            box.className = 'primary-region-overlay';
+            box.style.left = `${xDom}px`;
+            box.style.top = `0px`;
+            box.style.width = `${widthDom}px`;
+            box.style.height = `${rect.height}px`;
+            overlay.appendChild(box);
         }
 
         function findPhraseRegionInOcr(phrase) {

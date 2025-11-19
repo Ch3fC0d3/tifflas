@@ -1180,6 +1180,98 @@ def auto_detect_tracks(image_array):
     
     return tracks
 
+
+def select_primary_track_region(tracks, image_width):
+    """Cluster tracks into horizontal panels and select the best one.
+
+    This is used when the TIFF contains multiple side-by-side copies of the
+    same log. We group tracks by gaps between their horizontal centers and
+    then pick the widest, densest panel as the default region to use.
+    """
+    if not tracks:
+        return None
+
+    centers = []
+    widths = []
+    for left, right in tracks:
+        try:
+            l = int(left)
+            r = int(right)
+        except Exception:
+            continue
+        width = max(1, r - l)
+        widths.append(width)
+        centers.append(0.5 * (l + r))
+
+    if not widths or not centers:
+        return None
+
+    # Sort tracks by horizontal center and compute gaps between neighbors.
+    sorted_indices = sorted(range(len(tracks)), key=lambda i: centers[i])
+    gaps = []
+    for idx in range(len(sorted_indices) - 1):
+        c0 = centers[sorted_indices[idx]]
+        c1 = centers[sorted_indices[idx + 1]]
+        gaps.append(c1 - c0)
+
+    if gaps:
+        median_gap = float(np.median(gaps))
+        gap_threshold = max(median_gap * 2.5, 40.0)
+    else:
+        gap_threshold = max(int(image_width * 0.25), 40)
+
+    panels = []
+    current = []
+    last_center = None
+    for idx in sorted_indices:
+        center = centers[idx]
+        if last_center is not None and (center - last_center) > gap_threshold and current:
+            panels.append(current)
+            current = []
+        current.append(idx)
+        last_center = center
+    if current:
+        panels.append(current)
+
+    if not panels:
+        return None
+
+    best_panel = None
+    best_score = None
+    best_left = None
+    best_right = None
+    for panel in panels:
+        left_vals = []
+        right_vals = []
+        for i in panel:
+            try:
+                l = int(tracks[i][0])
+                r = int(tracks[i][1])
+            except Exception:
+                continue
+            left_vals.append(l)
+            right_vals.append(r)
+        if not left_vals or not right_vals:
+            continue
+        left = min(left_vals)
+        right = max(right_vals)
+        total_width = max(1, right - left)
+        score = total_width * len(panel)
+        if best_panel is None or score > best_score:
+            best_panel = panel
+            best_score = score
+            best_left = left
+            best_right = right
+
+    if best_panel is None:
+        return None
+
+    return {
+        "left_px": int(best_left),
+        "right_px": int(best_right),
+        "track_indices": best_panel,
+    }
+
 # ----------------------------
 # Flask Routes
 # ----------------------------
@@ -1220,6 +1312,18 @@ def upload_file():
     # Auto-detect tracks
     tracks = auto_detect_tracks(img)
 
+    # If multiple panels are present, pick the "best" region of tracks
+    primary_region = select_primary_track_region(tracks, w)
+    primary_tracks = tracks
+    if primary_region and isinstance(primary_region, dict):
+        indices = primary_region.get("track_indices") or []
+        if indices:
+            primary_tracks = [
+                tracks[i]
+                for i in indices
+                if isinstance(i, int) and 0 <= i < len(tracks)
+            ]
+
     # Try OCR if available
     detected_text = {'raw': [], 'numbers': [], 'suggestions': {}}
     ocr_suggestions = {}
@@ -1235,7 +1339,13 @@ def upload_file():
         'image': f'data:image/png;base64,{img_base64}',
         'width': w,
         'height': h,
-        'tracks': tracks,
+        'tracks': primary_tracks,
+        'all_tracks': tracks,
+        'primary_region': {
+            'left_px': primary_region.get('left_px'),
+            'right_px': primary_region.get('right_px'),
+            'track_indices': primary_region.get('track_indices'),
+        } if primary_region else None,
         'detected_text': detected_text,
         'ocr_suggestions': ocr_suggestions or detected_text.get('suggestions', {}),
         'vision_api_available': VISION_API_AVAILABLE and bool(detected_text.get('raw'))
