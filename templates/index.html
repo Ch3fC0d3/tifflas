@@ -316,9 +316,6 @@
             <!-- Step 2: Image Preview -->
             <div class="step hidden" id="previewStep">
                 <h2>Step 2: Image Preview</h2>
-                <div id="overlay">
-                    <img id="imagePreview" alt="Log preview">
-                </div>
                 <p style="color: #666; margin-top: 10px;">
                     📐 Image dimensions: <span id="imageDims"></span>
                 </p>
@@ -339,6 +336,9 @@
                     <label>Select log panel</label>
                     <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="beginPanelSelection()">Select panel from image</button>
                     <div class="hint-text">Click and drag directly on the image to draw a selection box around the log copy you want to digitize.</div>
+                </div>
+                <div id="overlay" style="margin-top: 14px;">
+                    <img id="imagePreview" alt="Log preview">
                 </div>
             </div>
 
