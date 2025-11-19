@@ -1312,17 +1312,9 @@ def upload_file():
     # Auto-detect tracks
     tracks = auto_detect_tracks(img)
 
-    # If multiple panels are present, pick the "best" region of tracks
+    # If multiple panels are present, pick the "best" region of tracks as a hint,
+    # but still return all tracks so the user can manually choose.
     primary_region = select_primary_track_region(tracks, w)
-    primary_tracks = tracks
-    if primary_region and isinstance(primary_region, dict):
-        indices = primary_region.get("track_indices") or []
-        if indices:
-            primary_tracks = [
-                tracks[i]
-                for i in indices
-                if isinstance(i, int) and 0 <= i < len(tracks)
-            ]
 
     # Try OCR if available
     detected_text = {'raw': [], 'numbers': [], 'suggestions': {}}
@@ -1339,7 +1331,7 @@ def upload_file():
         'image': f'data:image/png;base64,{img_base64}',
         'width': w,
         'height': h,
-        'tracks': primary_tracks,
+        'tracks': tracks,
         'all_tracks': tracks,
         'primary_region': {
             'left_px': primary_region.get('left_px'),

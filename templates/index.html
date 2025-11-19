@@ -328,6 +328,11 @@
                         <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="handlePhraseSearch()">Find</button>
                     </div>
                 </div>
+                <div class="form-group" style="margin-top: 8px; max-width: 420px;">
+                    <label>Select log panel</label>
+                    <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="beginPanelSelection()">Select panel from image</button>
+                    <div class="hint-text">Click once on the left edge and once on the right edge of the copy you want to digitize.</div>
+                </div>
             </div>
 
             <!-- Step 3: Configuration -->
@@ -413,10 +418,13 @@
         let imageWidth = 0;
         let imageHeight = 0;
         let detectedTracks = [];
+        let allTracks = [];
         let primaryRegion = null; // { left_px, right_px, track_indices }
         let ocrSuggestions = null;
         let detectedText = null;
         let depthAnchorMode = null; // 'top' | 'bottom' | null
+        let panelSelectMode = false;
+        let panelSelectLeft = null;
 
         // OCR phrase search state (Jump to label)
         let ocrSearchMatches = [];
@@ -446,6 +454,12 @@
             } else {
                 depthAnchorMode = null;
             }
+        }
+
+        function beginPanelSelection() {
+            panelSelectMode = true;
+            panelSelectLeft = null;
+            showStatus('Click once on the left edge and once on the right edge of the log panel you want to use.', 'info');
         }
 
         function snapDepthToLabels(yImg) {
@@ -679,6 +693,7 @@
                     uploadedImage = data.image;
                     imageWidth = data.width;
                     imageHeight = data.height;
+                    allTracks = data.all_tracks || data.tracks || [];
                     detectedTracks = data.tracks || [];
                     primaryRegion = data.primary_region || null;
                     ocrSuggestions = data.ocr_suggestions || {};
