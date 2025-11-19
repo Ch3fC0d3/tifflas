@@ -93,7 +93,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL_ID = os.getenv("OPENAI_MODEL_ID") or os.getenv("OPENAI_MODEL")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID") or "gemini-1.5-flash"
+GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID") or "gemini-pro"
 
 APP_VERSION = os.environ.get("APP_VERSION", "dev")
 APP_BUILD_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
