@@ -986,6 +986,16 @@ def build_ocr_suggestions(numeric_entries):
             depth_hint['top_depth'] = header_bottom_val
             depth_hint['bottom_depth'] = header_top_val
 
+    # If we could not infer a depth scale from the physical log but we do have
+    # plausible header depths, still provide a depth_hint so the UI can
+    # auto-fill the top/bottom depth values. Pixel positions (top_px,
+    # bottom_px) will remain unchanged in that case.
+    if depth_hint is None and header_top_val is not None and header_bottom_val is not None:
+        depth_hint = {
+            'top_depth': header_top_val,
+            'bottom_depth': header_bottom_val,
+        }
+
     suggestions = {}
     if depth_hint:
         suggestions['depth'] = depth_hint
@@ -1461,15 +1471,11 @@ def upload_file():
     # but still return all tracks so the user can manually choose.
     primary_region = select_primary_track_region(tracks, w)
 
-    # Try OCR if available
+    # OCR is now deferred until after the user selects a specific panel.
+    # We return empty placeholders here and let /reanalyze_panel do the actual
+    # Vision OCR work on the cropped region the user cares about.
     detected_text = {'raw': [], 'numbers': [], 'suggestions': {}}
     ocr_suggestions = {}
-    if VISION_API_AVAILABLE:
-        detected_text = detect_text_vision_api(file_bytes)
-        ocr_suggestions = detected_text.get('suggestions', {}) or {}
-        if ocr_suggestions:
-            ocr_suggestions = attach_color_hints_to_ocr_curves(img, ocr_suggestions)
-            detected_text['suggestions'] = ocr_suggestions
 
     return jsonify({
         'success': True,
@@ -1485,7 +1491,7 @@ def upload_file():
         } if primary_region else None,
         'detected_text': detected_text,
         'ocr_suggestions': ocr_suggestions or detected_text.get('suggestions', {}),
-        'vision_api_available': VISION_API_AVAILABLE and bool(detected_text.get('raw'))
+        'vision_api_available': bool(VISION_API_AVAILABLE)
     })
 
 @app.route('/digitize', methods=['POST'])
