@@ -410,7 +410,9 @@ def call_hf_curve_analysis(ai_payload):
     if GEMINI_API_KEY and GEMINI_MODEL_ID:
         try:
             genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel(GEMINI_MODEL_ID)
+            # Strip models/ prefix if present - SDK adds it automatically
+            model_name = GEMINI_MODEL_ID.replace('models/', '') if GEMINI_MODEL_ID.startswith('models/') else GEMINI_MODEL_ID
+            model = genai.GenerativeModel(model_name)
             resp = model.generate_content(prompt)
             text = getattr(resp, "text", None)
             if text:
@@ -496,7 +498,9 @@ def call_hf_curve_chat(ai_payload, question):
     if GEMINI_API_KEY and GEMINI_MODEL_ID:
         try:
             genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel(GEMINI_MODEL_ID)
+            # Strip models/ prefix if present - SDK adds it automatically
+            model_name = GEMINI_MODEL_ID.replace('models/', '') if GEMINI_MODEL_ID.startswith('models/') else GEMINI_MODEL_ID
+            model = genai.GenerativeModel(model_name)
             resp = model.generate_content(payload_text)
             text = getattr(resp, "text", None)
             if text:
@@ -1433,14 +1437,16 @@ def test_ai():
     if GEMINI_API_KEY and GEMINI_MODEL_ID:
         try:
             genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel(GEMINI_MODEL_ID)
+            # Strip models/ prefix if present - SDK adds it automatically
+            model_name = GEMINI_MODEL_ID.replace('models/', '') if GEMINI_MODEL_ID.startswith('models/') else GEMINI_MODEL_ID
+            model = genai.GenerativeModel(model_name)
             resp = model.generate_content("What is 2+2?")
             text = getattr(resp, 'text', '') or ''
             return jsonify({
                 'success': True,
                 'status_code': 200,
                 'provider': 'gemini',
-                'model': GEMINI_MODEL_ID,
+                'model': model_name,
                 'response': text,
             })
         except Exception as exc:
