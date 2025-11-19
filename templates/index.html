@@ -766,96 +766,7 @@
                 generateCurveInputs();
             }
             updateCurveScaleHints(true);
-            generateValidationReport();
             showStatus('Auto-filled curve types based on scale ranges. Please review before digitizing.', 'info');
-        }
-
-        function generateValidationReport() {
-            const numCurvesInput = document.getElementById('numCurves');
-            const numCurves = numCurvesInput ? (parseInt(numCurvesInput.value) || 0) : 0;
-            if (numCurves === 0) return;
-
-            const validationResults = [];
-            
-            for (let i = 0; i < numCurves; i++) {
-                const typeEl = document.getElementById(`type${i}`);
-                const nameEl = document.getElementById(`name${i}`);
-                const lasMnemonicEl = document.getElementById(`lasMnemonic${i}`);
-                
-                if (!typeEl || !nameEl) continue;
-                
-                const curveType = typeEl.value;
-                const displayName = nameEl.value.trim().toUpperCase();
-                const lasMnemonic = lasMnemonicEl ? lasMnemonicEl.value.trim().toUpperCase() : '';
-                
-                // Check if display name matches curve type
-                const typeMatch = displayName === curveType || displayName.includes(curveType);
-                const mnemonicMatch = displayName === lasMnemonic;
-                
-                let confidence = 'unknown';
-                let message = '';
-                
-                if (typeMatch && mnemonicMatch) {
-                    confidence = 'high';
-                    message = `✅ High confidence: OCR label "${displayName}" matches curve type "${curveType}"`;
-                } else if (typeMatch || mnemonicMatch) {
-                    confidence = 'medium';
-                    message = `⚠️ Medium confidence: Partial match between "${displayName}" and "${curveType}"`;
-                } else if (displayName && displayName !== 'CURVE' + (i + 1)) {
-                    confidence = 'low';
-                    message = `❌ Low confidence: OCR label "${displayName}" doesn't match curve type "${curveType}"`;
-                } else {
-                    confidence = 'unknown';
-                    message = `❓ No OCR label detected for Curve ${i + 1}`;
-                }
-                
-                validationResults.push({
-                    curveIndex: i + 1,
-                    curveType,
-                    displayName,
-                    lasMnemonic,
-                    confidence,
-                    message
-                });
-            }
-            
-            // Display validation report
-            displayValidationReport(validationResults);
-        }
-
-        function displayValidationReport(results) {
-            const summaryEl = document.getElementById('curveScaleSummary');
-            if (!summaryEl) return;
-            
-            const highConfidence = results.filter(r => r.confidence === 'high').length;
-            const mediumConfidence = results.filter(r => r.confidence === 'medium').length;
-            const lowConfidence = results.filter(r => r.confidence === 'low').length;
-            
-            let reportHtml = '<div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">';
-            reportHtml += '<h4 style="margin-top: 0;">🔍 AI Validation Report</h4>';
-            reportHtml += `<p style="margin: 10px 0;"><strong>Summary:</strong> ${highConfidence} high confidence, ${mediumConfidence} medium, ${lowConfidence} low</p>`;
-            reportHtml += '<div style="font-size: 0.9em;">';
-            
-            results.forEach(result => {
-                const color = result.confidence === 'high' ? '#28a745' : 
-                             result.confidence === 'medium' ? '#ffc107' : 
-                             result.confidence === 'low' ? '#dc3545' : '#6c757d';
-                reportHtml += `<div style="margin: 8px 0; padding: 8px; background: white; border-left: 4px solid ${color}; border-radius: 4px;">`;
-                reportHtml += `<strong>Curve ${result.curveIndex}:</strong> ${result.message}`;
-                reportHtml += '</div>';
-            });
-            
-            reportHtml += '</div></div>';
-            
-            // Append to summary element
-            const existingReport = summaryEl.querySelector('.validation-report');
-            if (existingReport) {
-                existingReport.remove();
-            }
-            const reportDiv = document.createElement('div');
-            reportDiv.className = 'validation-report';
-            reportDiv.innerHTML = reportHtml;
-            summaryEl.appendChild(reportDiv);
         }
 
         function updateCurveScaleHints(autoApply) {
@@ -1101,8 +1012,6 @@
             // are generated, so the AI guess fills the dropdowns, but later
             // edits only show warnings and a Fix button.
             updateCurveScaleHints(true);
-            // Generate validation report after curves are populated
-            setTimeout(() => generateValidationReport(), 100);
         }
 
         function applyOcrSuggestions() {
