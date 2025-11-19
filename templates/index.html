@@ -338,7 +338,7 @@
                 <div class="form-group" style="margin-top: 8px; max-width: 420px;">
                     <label>Select log panel</label>
                     <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="beginPanelSelection()">Select panel from image</button>
-                    <div class="hint-text">Click once on the left edge and once on the right edge of the copy you want to digitize.</div>
+                    <div class="hint-text">Click and drag directly on the image to draw a selection box around the log copy you want to digitize.</div>
                 </div>
             </div>
 
@@ -467,7 +467,10 @@
         function beginPanelSelection() {
             panelSelectMode = true;
             panelSelectStart = null;
-            showStatus('Click once in the top of the panel and once in the bottom of the same panel to select it.', 'info');
+            primaryRegionDrag.active = false;
+            primaryRegion = null;
+            clearPrimaryRegionOverlay();
+            showStatus('Click and drag on the image to draw a selection rectangle for the panel you want to digitize.', 'info');
         }
 
         function snapDepthToLabels(yImg) {
@@ -622,142 +625,172 @@
             mousePixelReadout.textContent = `Mouse pixel: X=${xImg}, Y=${yImg}${suffix}`;
         });
 
-        // Start dragging primary-region edges when clicking near them
+        // Marquee-style panel selection (click-drag-release)
         imagePreview.addEventListener('mousedown', (event) => {
             if (!imageWidth || !imageHeight) return;
-            if (!primaryRegion || panelSelectMode || depthAnchorMode) return;
 
-            const imgRect = imagePreview.getBoundingClientRect();
-            if (!imgRect.width || !imgRect.height) return;
+            const rect = imagePreview.getBoundingClientRect();
+            if (!rect.width || !rect.height) return;
 
-            const leftPx = Number(primaryRegion.left_px);
-            const rightPx = Number(primaryRegion.right_px);
-            if (!Number.isFinite(leftPx) || !Number.isFinite(rightPx) || rightPx <= leftPx) return;
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const xNorm = x / rect.width;
+            const yNorm = y / rect.height;
+            const xImg = Math.round(xNorm * (imageWidth - 1));
+            const yImg = Math.round(yNorm * (imageHeight - 1));
 
-            const offsetX = event.clientX - imgRect.left;
-            const offsetY = event.clientY - imgRect.top;
-
-            let bestEdge = null;
-            let bestDist = Infinity;
-
-            // Horizontal edges (left/right) in screen space
-            const scaleX = imgRect.width / imageWidth;
-            const leftDom = leftPx * scaleX;
-            const rightDom = rightPx * scaleX;
-            const edgeMarginX = 6; // px
-
-            const distLeft = Math.abs(offsetX - leftDom);
-            if (distLeft <= edgeMarginX && distLeft < bestDist) {
-                bestEdge = 'left';
-                bestDist = distLeft;
-            }
-            const distRight = Math.abs(offsetX - rightDom);
-            if (distRight <= edgeMarginX && distRight < bestDist) {
-                bestEdge = 'right';
-                bestDist = distRight;
+            if (panelSelectMode) {
+                // Start a new marquee selection
+                panelSelectStart = { x: xImg, y: yImg };
+                primaryRegion = null;
+                clearPrimaryRegionOverlay();
+                primaryRegionDrag.active = true; // reuse flag simply as \"drag in progress\"
+                primaryRegionDrag.edge = 'marquee';
+                event.preventDefault();
+                return;
             }
 
-            // Vertical edges (top/bottom) derived from current depth config
-            const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
-            if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
-                const scaleY = imgRect.height / imageHeight;
-                const topDom = cfg.top_px * scaleY;
-                const bottomDom = cfg.bottom_px * scaleY;
-                const edgeMarginY = 6; // px
-
-                const distTop = Math.abs(offsetY - topDom);
-                if (distTop <= edgeMarginY && distTop < bestDist) {
-                    bestEdge = 'top';
-                    bestDist = distTop;
-                }
-                const distBottom = Math.abs(offsetY - bottomDom);
-                if (distBottom <= edgeMarginY && distBottom < bestDist) {
-                    bestEdge = 'bottom';
-                    bestDist = distBottom;
-                }
-            }
-
-            if (!bestEdge) return;
-
-            primaryRegionDrag.active = true;
-            primaryRegionDrag.edge = bestEdge;
-            event.preventDefault();
+            // If not in panelSelectMode, just let depth anchors handle click in the separate handler
         });
 
-        // Drag primary-region edges while mouse is down
+        // Track marquee drag while mouse is down
         document.addEventListener('mousemove', (event) => {
-            if (!primaryRegionDrag.active || !primaryRegion || !imageWidth || !imageHeight) return;
+            if (!primaryRegionDrag.active || primaryRegionDrag.edge !== 'marquee') return;
+            if (!panelSelectMode || !panelSelectStart || !imageWidth || !imageHeight) return;
 
-            const imgRect = imagePreview.getBoundingClientRect();
-            if (!imgRect.width || !imgRect.height) return;
+            const rect = imagePreview.getBoundingClientRect();
+            if (!rect.width || !rect.height) return;
 
-            const edge = primaryRegionDrag.edge;
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const xNorm = Math.max(0, Math.min(1, x / rect.width));
+            const yNorm = Math.max(0, Math.min(1, y / rect.height));
+            const xImg = Math.round(xNorm * (imageWidth - 1));
+            const yImg = Math.round(yNorm * (imageHeight - 1));
 
-            if (edge === 'left' || edge === 'right') {
-                const x = event.clientX - imgRect.left;
-                const xClamped = Math.max(0, Math.min(imgRect.width, x));
-                const xNorm = xClamped / imgRect.width;
-                const xImg = Math.round(xNorm * (imageWidth - 1));
+            const left = Math.min(panelSelectStart.x, xImg);
+            const right = Math.max(panelSelectStart.x, xImg);
+            const top = Math.min(panelSelectStart.y, yImg);
+            const bottom = Math.max(panelSelectStart.y, yImg);
 
-                if (edge === 'left') {
-                    primaryRegion.left_px = Math.min(xImg, Number(primaryRegion.right_px) - 1);
-                } else if (edge === 'right') {
-                    primaryRegion.right_px = Math.max(xImg, Number(primaryRegion.left_px) + 1);
+            primaryRegion = { left_px: left, right_px: right, track_indices: [] };
+
+            // Have the box control depth pixels as well
+            const topPxInput = document.getElementById('topPx');
+            const bottomPxInput = document.getElementById('bottomPx');
+            if (topPxInput && bottomPxInput) {
+                topPxInput.value = top;
+                bottomPxInput.value = bottom;
+            }
+
+            renderDepthOverlays();
+            renderPrimaryRegionOverlay();
+        });
+
+        document.addEventListener('mouseup', async () => {
+            if (!primaryRegionDrag.active) return;
+
+            // Finish marquee selection if that was in progress
+            if (primaryRegionDrag.edge === 'marquee' && panelSelectMode && panelSelectStart && imageWidth && imageHeight) {
+                primaryRegionDrag.active = false;
+                const rect = imagePreview.getBoundingClientRect();
+                if (!rect.width || !rect.height) {
+                    primaryRegionDrag.edge = null;
+                    return;
                 }
-            } else if (edge === 'top' || edge === 'bottom') {
+
+                // Use the last known primaryRegion horizontally and full vertical extent from drag
+                // Compute current mouse position as second corner
+                // (We do a small trick: read mouse position from last move via DOM, but if unavailable we just keep existing primaryRegion.)
+
+                // Derive vertical top/bottom from the drag start and current mouse location
+                // For robustness we clamp into image coordinates again.
+                const lastX = panelSelectStart.x;
+                const lastY = panelSelectStart.y;
+                const left = Number(primaryRegion.left_px);
+                const right = Number(primaryRegion.right_px);
+
+                if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) {
+                    primaryRegionDrag.edge = null;
+                    return;
+                }
+
+                // For vertical, approximate from panelSelectStart and depth inputs if present.
                 const topPxInput = document.getElementById('topPx');
                 const bottomPxInput = document.getElementById('bottomPx');
-                if (!topPxInput || !bottomPxInput) return;
-
-                const y = event.clientY - imgRect.top;
-                const yClamped = Math.max(0, Math.min(imgRect.height, y));
-                const yNorm = yClamped / imgRect.height;
-                const yImg = Math.round(yNorm * (imageHeight - 1));
-
-                let topVal = parseFloat(topPxInput.value);
-                let bottomVal = parseFloat(bottomPxInput.value);
-                if (!Number.isFinite(topVal)) topVal = 0;
-                if (!Number.isFinite(bottomVal)) bottomVal = imageHeight - 1;
-
-                if (edge === 'top') {
-                    const newTop = Math.min(yImg, bottomVal - 1);
-                    topPxInput.value = newTop;
-                } else {
-                    const newBottom = Math.max(yImg, topVal + 1);
-                    bottomPxInput.value = newBottom;
+                let topPx = 0;
+                let bottomPx = imageHeight - 1;
+                if (topPxInput && bottomPxInput) {
+                    const t = parseFloat(topPxInput.value);
+                    const b = parseFloat(bottomPxInput.value);
+                    if (Number.isFinite(t) && Number.isFinite(b) && b > t) {
+                        topPx = t;
+                        bottomPx = b;
+                    }
                 }
+
+                // Filter tracks within horizontal band
+                if (Array.isArray(allTracks) && allTracks.length) {
+                    const selected = [];
+                    for (const t of allTracks) {
+                        if (!Array.isArray(t) || t.length < 2) continue;
+                        const cx = 0.5 * (Number(t[0]) + Number(t[1]));
+                        if (!Number.isFinite(cx)) continue;
+                        if (cx >= left && cx <= right) selected.push(t);
+                    }
+                    detectedTracks = selected;
+                }
+
+                // Update depth pixels from current vertical extent (or keep previous if user prefers)
+                if (topPxInput && bottomPxInput) {
+                    topPxInput.value = topPx;
+                    bottomPxInput.value = bottomPx;
+                }
+
+                panelSelectMode = false;
+                panelSelectStart = null;
+                primaryRegionDrag.edge = null;
+
+                autoConfigureCurves();
+                generateCurveInputs();
+
+                // Ask backend to re-analyze just this panel region for OCR/AI hints
+                try {
+                    const body = {
+                        image: uploadedImage,
+                        region: {
+                            left_px: left,
+                            right_px: right,
+                            top_px: topPx,
+                            bottom_px: bottomPx
+                        }
+                    };
+                    const resp = await fetch('/reanalyze_panel', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data.success) {
+                            ocrSuggestions = data.ocr_suggestions || ocrSuggestions;
+                            detectedText = data.detected_text || detectedText;
+                            applyOcrSuggestions();
+                            renderAiInsights();
+                        }
+                    }
+                } catch (e) {
+                    console.error('Panel re-analysis failed', e);
+                }
+
+                renderPrimaryRegionOverlay();
+                renderDepthOverlays();
+                showStatus(`Using ${detectedTracks.length || 0} tracks in selected panel.`, 'success');
+                return;
             }
 
-            renderDepthOverlays();
-            renderPrimaryRegionOverlay();
-        });
-
-        document.addEventListener('mouseup', () => {
-            if (!primaryRegionDrag.active) return;
             primaryRegionDrag.active = false;
             primaryRegionDrag.edge = null;
-
-            if (!primaryRegion || !Array.isArray(allTracks) || !allTracks.length) return;
-
-            const left = Number(primaryRegion.left_px);
-            const right = Number(primaryRegion.right_px);
-            if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return;
-
-            const selected = [];
-            for (const t of allTracks) {
-                if (!Array.isArray(t) || t.length < 2) continue;
-                const cx = 0.5 * (Number(t[0]) + Number(t[1]));
-                if (!Number.isFinite(cx)) continue;
-                if (cx >= left && cx <= right) selected.push(t);
-            }
-            detectedTracks = selected;
-
-            autoConfigureCurves();
-            generateCurveInputs();
-            applyOcrSuggestions();
-            renderPrimaryRegionOverlay();
-            renderDepthOverlays();
-            showStatus(`Using ${detectedTracks.length || 0} tracks in selected panel.`, 'success');
         });
 
         imagePreview.addEventListener('mouseleave', () => {
@@ -779,54 +812,9 @@
             const xImg = Math.round(xNorm * (imageWidth - 1));
             const yImg = Math.round(yNorm * (imageHeight - 1));
 
-            // Panel selection takes priority over depth anchors
+            // If we're in panelSelectMode, the click is ignored here because marquee uses mousedown/mouseup.
             if (panelSelectMode) {
-                if (!panelSelectStart) {
-                    // First corner
-                    panelSelectStart = { x: xImg, y: yImg };
-                    primaryRegion = { left_px: xImg, right_px: xImg + 1, track_indices: [] };
-                    renderPrimaryRegionOverlay();
-                    return;
-                } else {
-                    // Second corner defines full box
-                    const left = Math.min(panelSelectStart.x, xImg);
-                    const right = Math.max(panelSelectStart.x, xImg);
-                    const top = Math.min(panelSelectStart.y, yImg);
-                    const bottom = Math.max(panelSelectStart.y, yImg);
-
-                    primaryRegion = { left_px: left, right_px: right, track_indices: [] };
-
-                    // Filter tracks whose centers fall inside the horizontal band
-                    if (Array.isArray(allTracks) && allTracks.length) {
-                        const selected = [];
-                        for (const t of allTracks) {
-                            if (!Array.isArray(t) || t.length < 2) continue;
-                            const cx = 0.5 * (Number(t[0]) + Number(t[1]));
-                            if (!Number.isFinite(cx)) continue;
-                            if (cx >= left && cx <= right) selected.push(t);
-                        }
-                        detectedTracks = selected;
-                    }
-
-                    // Also set depth top/bottom pixels from the vertical extent
-                    const topPxInput = document.getElementById('topPx');
-                    const bottomPxInput = document.getElementById('bottomPx');
-                    if (topPxInput && bottomPxInput) {
-                        topPxInput.value = top;
-                        bottomPxInput.value = bottom;
-                    }
-
-                    panelSelectMode = false;
-                    panelSelectStart = null;
-
-                    autoConfigureCurves();
-                    generateCurveInputs();
-                    applyOcrSuggestions();
-                    renderPrimaryRegionOverlay();
-                    renderDepthOverlays();
-                    showStatus(`Using ${detectedTracks.length || 0} tracks in selected panel.`, 'success');
-                    return;
-                }
+                return;
             }
 
             if (!depthAnchorMode) return;

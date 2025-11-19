@@ -759,6 +759,71 @@ def detect_text_vision_api(image_bytes):
         return {'raw': [], 'numbers': [], 'suggestions': {}}
 
 
+@app.route('/reanalyze_panel', methods=['POST'])
+def reanalyze_panel():
+    """Re-run OCR/AI suggestions on a cropped panel region of the current image.
+
+    Expects JSON with:
+      - image: data URL string (same as /digitize)
+      - region: { left_px, right_px, top_px, bottom_px } in image pixel coords
+    """
+    data = request.json or {}
+    image_data = data.get('image')
+    region = data.get('region') or {}
+
+    if not image_data or ',' not in image_data:
+        return jsonify({'success': False, 'error': 'Missing image data'}), 400
+
+    try:
+        img_payload = image_data.split(',', 1)[1]
+        img_bytes = base64.b64decode(img_payload)
+    except Exception:
+        return jsonify({'success': False, 'error': 'Invalid image data'}), 400
+
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        return jsonify({'success': False, 'error': 'Could not decode image'}), 400
+
+    H, W, _ = img.shape
+    try:
+        left = max(0, int(region.get('left_px', 0)))
+        right = min(W, int(region.get('right_px', W)))
+        top = max(0, int(region.get('top_px', 0)))
+        bottom = min(H, int(region.get('bottom_px', H)))
+    except Exception:
+        return jsonify({'success': False, 'error': 'Invalid region'}), 400
+
+    if right <= left or bottom <= top:
+        return jsonify({'success': False, 'error': 'Empty region'}), 400
+
+    # Crop to region
+    crop = img[top:bottom, left:right]
+    ok, buf = cv2.imencode('.jpg', crop, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    if not ok:
+        return jsonify({'success': False, 'error': 'Failed to encode crop'}), 500
+
+    crop_bytes = buf.tobytes()
+
+    # Run Vision OCR on cropped panel
+    detected_text = detect_text_vision_api(crop_bytes)
+    ocr_suggestions = detected_text.get('suggestions', {}) or {}
+
+    # Attach color hints so curve suggestions stay consistent with panel
+    try:
+        ocr_suggestions = attach_color_hints_to_ocr_curves(crop, ocr_suggestions)
+        detected_text['suggestions'] = ocr_suggestions
+    except Exception:
+        # If anything goes wrong here, still return basic OCR suggestions
+        pass
+
+    return jsonify({
+        'success': True,
+        'ocr_suggestions': ocr_suggestions,
+        'detected_text': detected_text,
+    })
+
+
 def build_ocr_suggestions(numeric_entries):
     """Derive depth and curve hints from numeric OCR entries."""
     if not numeric_entries:
