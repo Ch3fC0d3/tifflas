@@ -723,7 +723,6 @@
 
         function syncCurveTypeToLabels(curveIndex) {
             const typeEl = document.getElementById(`type${curveIndex}`);
-            const displayNameEl = document.getElementById(`name${curveIndex}`);
             const lasMnemonicEl = document.getElementById(`lasMnemonic${curveIndex}`);
             const lasUnitEl = document.getElementById(`lasUnit${curveIndex}`);
             if (!typeEl || !lasMnemonicEl || !lasUnitEl) return;
@@ -731,12 +730,8 @@
             const typeVal = typeEl.value;
             const defaults = curveTypeDefaults[typeVal] || {};
             
-            // Sync display name to match curve type mnemonic
-            if (displayNameEl && defaults.mnemonic) {
-                displayNameEl.value = defaults.mnemonic;
-            }
-            
-            // Sync LAS mnemonic and unit
+            // Only sync LAS mnemonic and unit - NOT display name
+            // Display name should be determined independently by AI/OCR
             if (defaults.mnemonic) {
                 lasMnemonicEl.value = defaults.mnemonic;
             }
@@ -900,6 +895,10 @@
                 const hintedType = hint && hint.label_type ? hint.label_type : null;
                 const defaultType = hintedType || curveTypes[i] || 'GR';
 
+                // Get OCR-detected display name independently (from label_text or label_mnemonic)
+                const ocrDisplayName = hint && (hint.label_text || hint.label_mnemonic) ? 
+                    (hint.label_text || hint.label_mnemonic) : null;
+
                 // Build defaults for LAS mnemonic/unit: start from type defaults, then let OCR override
                 let defaults = curveTypeDefaults[defaultType] || { mnemonic: defaultType, unit: '' };
                 if (hint && hint.label_mnemonic) {
@@ -943,7 +942,7 @@
                         </div>
                         <div class="field">
                             <label for="name${i}">Display name (optional)</label>
-                            <input type="text" id="name${i}" placeholder="Label shown in app" value="${displayNames[i] || 'CURVE' + (i + 1)}">
+                            <input type="text" id="name${i}" placeholder="Label shown in app" value="${ocrDisplayName || displayNames[i] || 'CURVE' + (i + 1)}">
                         </div>
                         <div class="field">
                             <label for="unit${i}">Display unit (optional)</label>
