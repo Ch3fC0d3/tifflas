@@ -1563,10 +1563,11 @@
             box.style.height = `${heightDom}px`;
             overlay.appendChild(box);
 
-            // Also draw mask panels to hide everything outside the selection box.
-            // We create up to four rectangles (top, bottom, left, right) to cover
-            // the non-selected area while leaving the primary region fully
-            // visible.
+            const dragging = primaryRegionDrag && primaryRegionDrag.active && primaryRegionDrag.edge === 'marquee' && panelSelectMode;
+            if (dragging) {
+                return;
+            }
+
             const makeMask = (left, top, width, height) => {
                 if (width <= 0 || height <= 0) return;
                 const m = document.createElement('div');
@@ -1578,13 +1579,9 @@
                 overlay.appendChild(m);
             };
 
-            // Top mask (above selection)
             makeMask(0, 0, rect.width, topDom);
-            // Bottom mask (below selection)
             makeMask(0, topDom + heightDom, rect.width, rect.height - (topDom + heightDom));
-            // Left mask (left of selection)
             makeMask(0, topDom, xDom, heightDom);
-            // Right mask (right of selection)
             makeMask(xDom + widthDom, topDom, rect.width - (xDom + widthDom), heightDom);
         }
 
