@@ -189,6 +189,13 @@
             border-top: 1px dashed rgba(0, 0, 0, 0.2);
             pointer-events: none;
         }
+        .ai-depth-hint-line {
+            border-top: 2px solid #10b981; /* teal */
+        }
+        .ai-depth-hint-label {
+            font-weight: 600;
+            color: #047857;
+        }
         .depth-overlay-label {
             position: absolute;
             left: 0;
@@ -1412,7 +1419,7 @@
         function clearDepthOverlays() {
             const overlay = document.getElementById('overlay');
             if (!overlay) return;
-            const lines = overlay.querySelectorAll('.depth-overlay-line');
+            const lines = overlay.querySelectorAll('.depth-overlay-line, .ai-depth-hint-line, .ai-depth-hint-label');
             lines.forEach((el) => el.remove());
         }
 
@@ -1483,6 +1490,37 @@
                 label.textContent = depth.toFixed(0);
                 line.appendChild(label);
                 overlay.appendChild(line);
+            }
+
+            // Mark AI-guessed top/bottom pixels from OCR depth hint, if available
+            if (ocrSuggestions && ocrSuggestions.depth) {
+                const d = ocrSuggestions.depth;
+                const addHint = (yPx, text) => {
+                    if (!Number.isFinite(yPx)) return;
+                    const yDom = (yPx / imageHeight) * rect.height;
+                    const line = document.createElement('div');
+                    line.className = 'depth-overlay-line ai-depth-hint-line';
+                    line.style.top = `${yDom}px`;
+
+                    const label = document.createElement('div');
+                    label.className = 'depth-overlay-label ai-depth-hint-label';
+                    label.textContent = text;
+                    line.appendChild(label);
+                    overlay.appendChild(line);
+                };
+
+                if (Number.isFinite(d.top_px)) {
+                    const txt = Number.isFinite(d.top_depth)
+                        ? `AI top ~${d.top_depth.toFixed(0)} (${Math.round(d.top_px)} px)`
+                        : `AI top (${Math.round(d.top_px)} px)`;
+                    addHint(d.top_px, txt);
+                }
+                if (Number.isFinite(d.bottom_px)) {
+                    const txt = Number.isFinite(d.bottom_depth)
+                        ? `AI bottom ~${d.bottom_depth.toFixed(0)} (${Math.round(d.bottom_px)} px)`
+                        : `AI bottom (${Math.round(d.bottom_px)} px)`;
+                    addHint(d.bottom_px, txt);
+                }
             }
         }
 
