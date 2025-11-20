@@ -1388,6 +1388,90 @@ def detect_text_vision_api(image_bytes):
         return {'raw': [], 'numbers': [], 'suggestions': {}}
 
 
+def extract_log_metadata(raw_text, numeric_entries):
+    """Extract Top/Bottom depths and scale info from OCR results.
+    
+    Looks for keywords like 'Top', 'Bottom', 'Index Scale' in the header.
+    Returns dict with top_depth, bottom_depth, scale_info.
+    """
+    metadata = {
+        'top_depth': None,
+        'bottom_depth': None,
+        'scale_info': None,
+        'depth_unit': 'FT'
+    }
+    
+    if not raw_text:
+        return metadata
+    
+    import re
+    
+    # Build a text map: lowercase text -> (original text, position, nearby numbers)
+    text_map = []
+    for entry in raw_text:
+        text = entry.get('text', '').strip()
+        if not text:
+            continue
+        vertices = entry.get('vertices', [])
+        if not vertices:
+            continue
+        # Get center position
+        x = sum(v.get('x', 0) for v in vertices) / len(vertices)
+        y = sum(v.get('y', 0) for v in vertices) / len(vertices)
+        text_map.append({
+            'text': text,
+            'text_lower': text.lower(),
+            'x': x,
+            'y': y
+        })
+    
+    # Find "Top" keyword and extract nearby number
+    for item in text_map:
+        if 'top' in item['text_lower'] and len(item['text_lower']) <= 10:
+            # Look for numbers within 200 pixels horizontally
+            candidates = []
+            for num_entry in numeric_entries:
+                dx = abs(num_entry['x'] - item['x'])
+                dy = abs(num_entry['y'] - item['y'])
+                if dx < 200 and dy < 50:  # Same row, nearby
+                    candidates.append((num_entry['value'], dx))
+            
+            if candidates:
+                # Pick closest number
+                candidates.sort(key=lambda c: c[1])
+                metadata['top_depth'] = candidates[0][0]
+                print(f"Detected Top depth: {metadata['top_depth']}")
+    
+    # Find "Bottom" keyword and extract nearby number
+    for item in text_map:
+        if 'bottom' in item['text_lower'] and len(item['text_lower']) <= 10:
+            candidates = []
+            for num_entry in numeric_entries:
+                dx = abs(num_entry['x'] - item['x'])
+                dy = abs(num_entry['y'] - item['y'])
+                if dx < 200 and dy < 50:
+                    candidates.append((num_entry['value'], dx))
+            
+            if candidates:
+                candidates.sort(key=lambda c: c[1])
+                metadata['bottom_depth'] = candidates[0][0]
+                print(f"Detected Bottom depth: {metadata['bottom_depth']}")
+    
+    # Find "Index Scale" or similar
+    for item in text_map:
+        text_lower = item['text_lower']
+        if 'scale' in text_lower or 'index' in text_lower:
+            # Look for pattern like "2 in per 100 ft"
+            for entry in raw_text:
+                entry_text = entry.get('text', '')
+                if 'per' in entry_text.lower() and ('ft' in entry_text.lower() or 'in' in entry_text.lower()):
+                    metadata['scale_info'] = entry_text
+                    print(f"Detected scale: {metadata['scale_info']}")
+                    break
+    
+    return metadata
+
+
 @app.route('/reanalyze_panel', methods=['POST'])
 def reanalyze_panel():
     """Re-run OCR/AI suggestions on a cropped panel region of the current image.
@@ -2382,11 +2466,30 @@ def upload_file():
     # but still return all tracks so the user can manually choose.
     primary_region = select_primary_track_region(tracks, w)
 
-    # OCR is now deferred until after the user selects a specific panel.
-    # We return empty placeholders here and let /reanalyze_panel do the actual
-    # Vision OCR work on the cropped region the user cares about.
+    # Run OCR on FULL image to extract header metadata (Top/Bottom depths, scale)
     detected_text = {'raw': [], 'numbers': [], 'suggestions': {}}
     ocr_suggestions = {}
+    log_metadata = {}
+    
+    if VISION_API_AVAILABLE:
+        try:
+            # Encode full image for OCR
+            _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            img_bytes_for_ocr = buffer.tobytes()
+            
+            # Run Vision OCR on full image
+            ocr_result = detect_text_vision_api(img_bytes_for_ocr)
+            detected_text = ocr_result
+            ocr_suggestions = ocr_result.get('suggestions', {})
+            
+            # Extract log metadata (Top, Bottom, Scale) from OCR results
+            log_metadata = extract_log_metadata(
+                ocr_result.get('raw', []),
+                ocr_result.get('numbers', [])
+            )
+            print(f"Extracted log metadata: {log_metadata}")
+        except Exception as e:
+            print(f"Error during full-image OCR: {e}")
 
     return jsonify({
         'success': True,
@@ -2402,6 +2505,7 @@ def upload_file():
         } if primary_region else None,
         'detected_text': detected_text,
         'ocr_suggestions': ocr_suggestions or detected_text.get('suggestions', {}),
+        'log_metadata': log_metadata,  # NEW: Top/Bottom depths and scale
         'vision_api_available': bool(VISION_API_AVAILABLE)
     })
 

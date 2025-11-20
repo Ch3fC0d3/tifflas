@@ -1087,8 +1087,17 @@
                     }
                 }
                 
-                // Update primaryRegion to match new depth range
-                if (primaryRegion) {
+                // Update or create primaryRegion to match new depth range
+                if (!primaryRegion) {
+                    // Create primaryRegion if it doesn't exist (use full width)
+                    primaryRegion = {
+                        left_px: 0,
+                        right_px: imageWidth - 1,
+                        top_px: usedY,
+                        bottom_px: imageHeight - 1,
+                        track_indices: []
+                    };
+                } else {
                     primaryRegion.top_px = usedY;
                 }
             } else if (depthAnchorMode === 'bottom') {
@@ -1107,8 +1116,17 @@
                     }
                 }
                 
-                // Update primaryRegion to match new depth range
-                if (primaryRegion) {
+                // Update or create primaryRegion to match new depth range
+                if (!primaryRegion) {
+                    // Create primaryRegion if it doesn't exist (use full width)
+                    primaryRegion = {
+                        left_px: 0,
+                        right_px: imageWidth - 1,
+                        top_px: 0,
+                        bottom_px: usedY,
+                        track_indices: []
+                    };
+                } else {
                     primaryRegion.bottom_px = usedY;
                 }
             }
@@ -1146,8 +1164,8 @@
                     allTracks = data.all_tracks || data.tracks || [];
                     detectedTracks = data.tracks || [];
                     primaryRegion = null;
-                    ocrSuggestions = {};
-                    detectedText = null;
+                    ocrSuggestions = data.ocr_suggestions || {};
+                    detectedText = data.detected_text || null;
 
                     // Show preview
                     const imgEl = document.getElementById('imagePreview');
@@ -1161,17 +1179,38 @@
                     document.getElementById('previewStep').classList.remove('hidden');
                     document.getElementById('configStep').classList.remove('hidden');
                     
-                    // Pre-fill with defaults then apply AI suggestions
+                    // Pre-fill with defaults
                     document.getElementById('topPx').value = 0;
                     document.getElementById('bottomPx').value = imageHeight - 1;
                     document.getElementById('topDepth').value = 1000;
                     document.getElementById('bottomDepth').value = 2000;
 
+                    // AUTO-APPLY log metadata from header (Top/Bottom depths)
+                    const logMetadata = data.log_metadata || {};
+                    let metadataApplied = false;
+                    
+                    if (logMetadata.top_depth && Number.isFinite(logMetadata.top_depth)) {
+                        document.getElementById('topDepth').value = logMetadata.top_depth;
+                        metadataApplied = true;
+                        console.log(`Auto-applied Top depth: ${logMetadata.top_depth}`);
+                    }
+                    
+                    if (logMetadata.bottom_depth && Number.isFinite(logMetadata.bottom_depth)) {
+                        document.getElementById('bottomDepth').value = logMetadata.bottom_depth;
+                        metadataApplied = true;
+                        console.log(`Auto-applied Bottom depth: ${logMetadata.bottom_depth}`);
+                    }
+                    
+                    if (logMetadata.scale_info) {
+                        console.log(`Detected scale: ${logMetadata.scale_info}`);
+                    }
+
                     autoConfigureCurves();
                     generateCurveInputs();
                     const appliedHints = applyOcrSuggestions();
                     const usedSessionDepth = loadDepthConfigFromSession();
-                    const aiNote = appliedHints ? ' ✨ AI suggestions applied.' : '';
+                    
+                    const aiNote = metadataApplied ? ' ✨ Header metadata auto-applied.' : (appliedHints ? ' ✨ AI suggestions applied.' : '');
                     const sessionNote = usedSessionDepth ? ' (reused last depth setup this session)' : '';
 
                     showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}${sessionNote}`, 'success');
@@ -2310,14 +2349,22 @@
             showStatus('🔄 Processing...', 'info');
 
             // Ensure depth pixel range matches panel selection if panel is selected
-            if (primaryRegion && Number.isFinite(primaryRegion.top_px) && Number.isFinite(primaryRegion.bottom_px)) {
+            // ONLY auto-correct if primaryRegion has valid vertical bounds
+            if (primaryRegion && 
+                Number.isFinite(primaryRegion.top_px) && 
+                Number.isFinite(primaryRegion.bottom_px) &&
+                primaryRegion.bottom_px > primaryRegion.top_px) {
+                
                 const topPxInput = document.getElementById('topPx');
                 const bottomPxInput = document.getElementById('bottomPx');
                 const currentTop = parseInt(topPxInput.value);
                 const currentBottom = parseInt(bottomPxInput.value);
                 
-                // If depth range doesn't match panel selection, use panel bounds
-                if (currentTop !== Math.round(primaryRegion.top_px) || currentBottom !== Math.round(primaryRegion.bottom_px)) {
+                // Only auto-correct if there's a significant mismatch (>5 pixels)
+                const topDiff = Math.abs(currentTop - Math.round(primaryRegion.top_px));
+                const bottomDiff = Math.abs(currentBottom - Math.round(primaryRegion.bottom_px));
+                
+                if (topDiff > 5 || bottomDiff > 5) {
                     console.warn('Depth pixel range mismatch detected. Auto-correcting to match panel selection.');
                     topPxInput.value = Math.round(primaryRegion.top_px);
                     bottomPxInput.value = Math.round(primaryRegion.bottom_px);
