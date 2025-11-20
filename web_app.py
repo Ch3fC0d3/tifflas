@@ -940,15 +940,15 @@ def trace_curve_with_dp(curve_mask, scale_min, scale_max, curve_type="GR", max_s
     prob = curve_mask.astype(np.float32) / 255.0
     cost = 1.0 - prob  # 0 where curve is strong, 1 where nothing
     
-    # Add plausibility penalty
+    # Add plausibility penalty (reduced from 10.0 to 2.0 to be less aggressive)
     if curve_type.upper() in plausible_ranges:
         pmin, pmax = plausible_ranges[curve_type.upper()]
         for x in range(w):
             # Map x to value
             value = scale_min + (x / max(1, w - 1)) * (scale_max - scale_min)
             if value < pmin or value > pmax:
-                # Penalize implausible values
-                cost[:, x] += 10.0
+                # Penalize implausible values (but not too harshly)
+                cost[:, x] += 2.0
     
     # Dynamic programming
     big = 1e6
@@ -973,17 +973,46 @@ def trace_curve_with_dp(curve_mask, scale_min, scale_max, curve_type="GR", max_s
             dp[y, x] = best_val
             prev[y, x] = best_xp
     
-    # Backtrack from minimal cost at bottom row
-    x_end = int(np.argmin(dp[-1, :]))
-    path_x = np.zeros(h, dtype=np.int32)
-    path_x[-1] = x_end
-    for y in range(h - 1, 0, -1):
-        path_x[y - 1] = prev[y, path_x[y]]
+    # Find the best ending point: look for minimum cost in bottom 20% of image
+    # This helps avoid starting from a bad position
+    bottom_start = max(0, int(h * 0.8))
+    best_cost = big
+    best_y = h - 1
+    best_x = 0
+    for y in range(bottom_start, h):
+        min_x = int(np.argmin(dp[y, :]))
+        if dp[y, min_x] < best_cost:
+            best_cost = dp[y, min_x]
+            best_y = y
+            best_x = min_x
+    
+    # Backtrack from best position
+    path_x = np.full(h, -1, dtype=np.int32)
+    path_x[best_y] = best_x
+    for y in range(best_y, 0, -1):
+        if path_x[y] >= 0:
+            path_x[y - 1] = prev[y, path_x[y]]
+    
+    # Forward fill for any rows after best_y
+    if best_y < h - 1:
+        last_x = best_x
+        for y in range(best_y + 1, h):
+            # Find best continuation
+            x0 = max(0, last_x - max_step)
+            x1 = min(w, last_x + max_step + 1)
+            best_local = np.argmax(prob[y, x0:x1])
+            path_x[y] = x0 + best_local
+            last_x = path_x[y]
     
     # Compute confidence per row
     confidence = np.zeros(h, dtype=np.float32)
     for y in range(h):
         x = path_x[y]
+        if x < 0 or x >= w:
+            confidence[y] = 0.0
+            path_x[y] = -1
+            continue
+            
         p_best = prob[y, x]
         
         # Find second-best probability within max_step
@@ -998,7 +1027,7 @@ def trace_curve_with_dp(curve_mask, scale_min, scale_max, curve_type="GR", max_s
             confidence[y] = p_best
         
         # Mark low-confidence as NaN
-        if p_best < 0.2:
+        if p_best < 0.15:  # Lowered threshold from 0.2 to 0.15
             path_x[y] = -1
     
     # Convert -1 to np.nan
