@@ -1927,14 +1927,6 @@
                 heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
             }
 
-            // Nudge the top edge down slightly in screen space so the visible
-            // border does not appear above the graph, while keeping the
-            // bottom edge fixed.
-            const topFudgePx = 2;
-            if (heightDom > topFudgePx) {
-                topDom += topFudgePx;
-                heightDom -= topFudgePx;
-            }
 
             const box = document.createElement('div');
             box.className = 'primary-region-overlay';
@@ -1998,13 +1990,7 @@
                 heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
             }
 
-            // Apply the same small top-edge fudge as the primary region so
-            // orange AI track boxes visually align with the blue panel box.
-            const topFudgePx = 2;
-            if (heightDom > topFudgePx) {
-                topDom += topFudgePx;
-                heightDom -= topFudgePx;
-            }
+            // Vertical band exactly from top_px to bottom_px in image pixels.
 
             clearTrackOverlays();
 
