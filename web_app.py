@@ -847,6 +847,213 @@ def black_mask(gray_img):
         10,
     )
 
+def preprocess_curve_track(roi, mode="black"):
+    """Clean up a curve track ROI: isolate curve color, remove gridlines, thin.
+    
+    Args:
+        roi: BGR image crop of the track
+        mode: "black", "red", "blue", or "green"
+    
+    Returns:
+        Binary mask where curve pixels are 255, background is 0
+    """
+    if roi is None or roi.size == 0:
+        return np.zeros((1, 1), dtype=np.uint8)
+    
+    h, w = roi.shape[:2]
+    if h < 2 or w < 2:
+        return np.zeros((h, w), dtype=np.uint8)
+    
+    # Step 1: Color isolation
+    if mode == "black":
+        # Low brightness = curve
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        _, _, v = cv2.split(hsv)
+        _, curve_mask = cv2.threshold(v, 80, 255, cv2.THRESH_BINARY_INV)
+    elif mode == "red":
+        b, g, r = cv2.split(roi)
+        curve_mask = ((r > 120) & (r > g + 20) & (r > b + 20)).astype(np.uint8) * 255
+    elif mode == "blue":
+        b, g, r = cv2.split(roi)
+        curve_mask = ((b > 120) & (b > r + 20) & (b > g + 20)).astype(np.uint8) * 255
+    elif mode == "green":
+        b, g, r = cv2.split(roi)
+        curve_mask = ((g > 120) & (g > r + 20) & (g > b + 20)).astype(np.uint8) * 255
+    else:
+        # Fallback: use existing black mask logic
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        _, _, v = cv2.split(hsv)
+        _, curve_mask = cv2.threshold(v, 80, 255, cv2.THRESH_BINARY_INV)
+    
+    # Step 2: Remove vertical gridlines
+    if h > 15:
+        vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, min(15, h // 3)))
+        vert_lines = cv2.morphologyEx(curve_mask, cv2.MORPH_OPEN, vertical_kernel)
+        curve_mask = cv2.bitwise_and(curve_mask, cv2.bitwise_not(vert_lines))
+    
+    # Step 3: Remove horizontal gridlines
+    if w > 15:
+        horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (min(15, w // 3), 1))
+        horiz_lines = cv2.morphologyEx(curve_mask, cv2.MORPH_OPEN, horizontal_kernel)
+        curve_mask = cv2.bitwise_and(curve_mask, cv2.bitwise_not(horiz_lines))
+    
+    # Step 4: Slight blur to fill 1-pixel gaps
+    blurred = cv2.GaussianBlur(curve_mask, (3, 3), 0)
+    _, cleaned = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    return cleaned
+
+
+def trace_curve_with_dp(curve_mask, scale_min, scale_max, curve_type="GR", max_step=3, smooth_lambda=0.5):
+    """Trace a curve using dynamic programming for smooth path finding.
+    
+    Args:
+        curve_mask: Binary mask (0 or 255) where curve pixels are bright
+        scale_min: Left scale value
+        scale_max: Right scale value
+        curve_type: Curve type for plausibility checks (GR, RHOB, NPHI, DT, etc.)
+        max_step: Max horizontal movement per row (pixels)
+        smooth_lambda: Smoothness penalty weight
+    
+    Returns:
+        xs: Array of x-coordinates (one per row), with np.nan for low-confidence rows
+        confidence: Array of confidence scores (0-1) per row
+    """
+    if curve_mask is None or curve_mask.size == 0:
+        return np.array([]), np.array([])
+    
+    h, w = curve_mask.shape
+    if h < 2 or w < 2:
+        return np.full(h, np.nan), np.zeros(h)
+    
+    # Define plausible value ranges per curve type
+    plausible_ranges = {
+        'GR': (0, 200),
+        'RHOB': (1.5, 3.5),
+        'NPHI': (-0.2, 0.6),
+        'DT': (40, 200),
+        'CALI': (4, 20),
+        'SP': (-200, 100),
+    }
+    
+    # Convert mask to probability (0-1)
+    prob = curve_mask.astype(np.float32) / 255.0
+    cost = 1.0 - prob  # 0 where curve is strong, 1 where nothing
+    
+    # Add plausibility penalty
+    if curve_type.upper() in plausible_ranges:
+        pmin, pmax = plausible_ranges[curve_type.upper()]
+        for x in range(w):
+            # Map x to value
+            value = scale_min + (x / max(1, w - 1)) * (scale_max - scale_min)
+            if value < pmin or value > pmax:
+                # Penalize implausible values
+                cost[:, x] += 10.0
+    
+    # Dynamic programming
+    big = 1e6
+    dp = np.full((h, w), big, dtype=np.float32)
+    prev = np.full((h, w), -1, dtype=np.int16)
+    
+    # First row: cost as-is
+    dp[0, :] = cost[0, :]
+    
+    for y in range(1, h):
+        for x in range(w):
+            x0 = max(0, x - max_step)
+            x1 = min(w, x + max_step + 1)
+            best_val = big
+            best_xp = -1
+            for xp in range(x0, x1):
+                smooth_penalty = smooth_lambda * (x - xp) ** 2
+                v = dp[y - 1, xp] + cost[y, x] + smooth_penalty
+                if v < best_val:
+                    best_val = v
+                    best_xp = xp
+            dp[y, x] = best_val
+            prev[y, x] = best_xp
+    
+    # Backtrack from minimal cost at bottom row
+    x_end = int(np.argmin(dp[-1, :]))
+    path_x = np.zeros(h, dtype=np.int32)
+    path_x[-1] = x_end
+    for y in range(h - 1, 0, -1):
+        path_x[y - 1] = prev[y, path_x[y]]
+    
+    # Compute confidence per row
+    confidence = np.zeros(h, dtype=np.float32)
+    for y in range(h):
+        x = path_x[y]
+        p_best = prob[y, x]
+        
+        # Find second-best probability within max_step
+        x0 = max(0, x - max_step)
+        x1 = min(w, x + max_step + 1)
+        probs_nearby = prob[y, x0:x1]
+        if probs_nearby.size > 1:
+            probs_sorted = np.sort(probs_nearby)[::-1]
+            p_second = probs_sorted[1] if probs_sorted.size > 1 else 0.0
+            confidence[y] = p_best - p_second
+        else:
+            confidence[y] = p_best
+        
+        # Mark low-confidence as NaN
+        if p_best < 0.2:
+            path_x[y] = -1
+    
+    # Convert -1 to np.nan
+    xs = path_x.astype(np.float32)
+    xs[xs < 0] = np.nan
+    
+    return xs, confidence
+
+
+def remove_outliers_and_smooth(xs, window=5, outlier_threshold=3.0):
+    """Remove isolated spikes and smooth the curve.
+    
+    Args:
+        xs: Array of x-coordinates with possible NaNs
+        window: Window size for median smoothing
+        outlier_threshold: Number of std deviations for outlier detection
+    
+    Returns:
+        Smoothed array with outliers removed
+    """
+    if xs is None or xs.size < 3:
+        return xs
+    
+    # Convert to pandas for easier handling
+    s = pd.Series(xs)
+    
+    # Remove outliers: if a point differs from both neighbors by > threshold * std
+    valid = ~s.isna()
+    if valid.sum() > 3:
+        # Compute rolling std
+        rolling_std = s[valid].rolling(window, min_periods=2, center=True).std()
+        rolling_mean = s[valid].rolling(window, min_periods=2, center=True).mean()
+        
+        for i in range(1, len(s) - 1):
+            if valid.iloc[i]:
+                neighbors = [s.iloc[i - 1], s.iloc[i + 1]]
+                neighbors_valid = [x for x in neighbors if not pd.isna(x)]
+                if len(neighbors_valid) >= 2:
+                    mean_neighbor = np.mean(neighbors_valid)
+                    std_val = rolling_std.iloc[i] if i < len(rolling_std) and not pd.isna(rolling_std.iloc[i]) else 1.0
+                    if abs(s.iloc[i] - mean_neighbor) > outlier_threshold * max(std_val, 1.0):
+                        s.iloc[i] = np.nan
+    
+    # Smooth with median filter
+    if window % 2 == 0:
+        window += 1
+    if window > 1:
+        s = s.rolling(window, min_periods=1, center=True).median()
+    
+    # Interpolate remaining gaps
+    s = s.interpolate(limit_direction="both", limit=50)
+    
+    return s.to_numpy(dtype=np.float32)
+
+
 def pick_curve_x_per_row(mask, min_run=2):
     h, w = mask.shape
     xs = np.full(h, np.nan, dtype=np.float32)
@@ -1955,41 +2162,22 @@ def digitize():
             bb = blur + 1 if blur % 2 == 0 else blur
             roi = cv2.GaussianBlur(roi, (bb, bb), 0)
         
-        if mode == 'red':
-            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-            mask = hsv_red_mask(hsv)
-        elif mode == 'blue':
-            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-            mask = hsv_blue_mask(hsv)
-        elif mode == 'green':
-            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-            mask = hsv_green_mask(hsv)
-        else:
-            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-            mask = black_mask(gray)
+        # NEW: Use advanced preprocessing to clean the curve track
+        mask = preprocess_curve_track(roi, mode=mode)
         
-        kernel = np.ones((3, 3), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, 1)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, 1)
-
-        # Suppress strong vertical grid lines that appear in most rows, so we
-        # favor the wiggly curve trace over perfectly vertical grid strokes.
-        try:
-            h_mask, w_mask = mask.shape
-            if h_mask > 0 and w_mask > 0:
-                col_hits = (mask > 0).sum(axis=0)
-                # Columns that are active in a large fraction of rows are
-                # likely grid lines rather than the curve itself.
-                threshold = max(10, int(0.7 * h_mask))
-                grid_cols = col_hits >= threshold
-                if np.any(grid_cols):
-                    mask[:, grid_cols] = 0
-        except Exception:
-            # If anything goes wrong, fall back to the original mask
-            pass
-
-        xs = pick_curve_x_per_row(mask, min_run)
-        xs = smooth_nanmedian(xs, smooth_window)
+        # NEW: Use DP-based smooth path tracing with plausibility checks
+        curve_type = c.get('type', 'GR')  # Get curve type for plausibility
+        xs, confidence = trace_curve_with_dp(
+            mask, 
+            scale_min=left_value, 
+            scale_max=right_value,
+            curve_type=curve_type,
+            max_step=3,
+            smooth_lambda=0.5
+        )
+        
+        # NEW: Remove outliers and smooth
+        xs = remove_outliers_and_smooth(xs, window=smooth_window, outlier_threshold=3.0)
 
         width_px = mask.shape[1]
         vals = np.full(xs.shape, np.nan, dtype=np.float32)
