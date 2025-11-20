@@ -1061,7 +1061,8 @@
             if (!depthAnchorMode) return;
 
             const snapped = snapDepthToLabels(yImg);
-            const usedY = snapped ? snapped.y_px : yImg;
+            // Use the exact clicked pixel for depth anchors so overlays align
+            const usedY = yImg;
             const snappedDepth = snapped ? snapped.depth : null;
 
             if (depthAnchorMode === 'top') {
@@ -1911,18 +1912,20 @@
 
             clearPrimaryRegionOverlay();
 
-            const scaleX = rect.width / imageWidth;
-            const xDom = leftPx * scaleX;
-            const widthDom = (rightPx - leftPx) * scaleX;
+            const denomX = Math.max(1, imageWidth - 1);
+            const xDom = (leftPx / denomX) * rect.width;
+            const xDomRight = (rightPx / denomX) * rect.width;
+            const widthDom = xDomRight - xDom;
 
             // Vertical placement follows the current depth pixel configuration, if valid.
             let topDom = 0;
             let heightDom = rect.height;
             const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
             if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
-                const scaleY = rect.height / imageHeight;
-                topDom = cfg.top_px * scaleY;
-                heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
+                const denomY = Math.max(1, imageHeight - 1);
+                topDom = (cfg.top_px / denomY) * rect.height;
+                const bottomDom = (cfg.bottom_px / denomY) * rect.height;
+                heightDom = bottomDom - topDom;
             }
 
             const box = document.createElement('div');
@@ -1975,17 +1978,17 @@
                 clearTrackOverlays();
                 return;
             }
-
-            const scaleX = rect.width / imageWidth;
+            const denomX = Math.max(1, imageWidth - 1);
 
             // Vertical band follows current depth config, if valid
             let topDom = 0;
             let heightDom = rect.height;
             const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
             if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
-                const scaleY = rect.height / imageHeight;
-                topDom = cfg.top_px * scaleY;
-                heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
+                const denomY = Math.max(1, imageHeight - 1);
+                topDom = (cfg.top_px / denomY) * rect.height;
+                const bottomDom = (cfg.bottom_px / denomY) * rect.height;
+                heightDom = bottomDom - topDom;
             }
 
             clearTrackOverlays();
@@ -1995,8 +1998,9 @@
                 const rightPx = Number(t.right_px);
                 if (!Number.isFinite(leftPx) || !Number.isFinite(rightPx) || rightPx <= leftPx) return;
 
-                const xDom = leftPx * scaleX;
-                const widthDom = (rightPx - leftPx) * scaleX;
+                const xDom = (leftPx / denomX) * rect.width;
+                const xDomRight = (rightPx / denomX) * rect.width;
+                const widthDom = xDomRight - xDom;
 
                 const box = document.createElement('div');
                 box.className = 'ai-track-overlay';
