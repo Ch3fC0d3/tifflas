@@ -1293,18 +1293,44 @@
                 const depthAxis = calib.depth_axis || {};
                 const tracks = calib.tracks || [];
 
-                // Apply depth_axis
-                if (Number.isFinite(depthAxis.top_pixel)) {
-                    topPxInput.value = Math.round(depthAxis.top_pixel);
+                // Check if user has manually set depth values
+                const hasManualDepth = topPxInput.value && bottomPxInput.value && 
+                                      document.getElementById('topDepth').value && 
+                                      document.getElementById('bottomDepth').value;
+                
+                let applyDepth = true;
+                if (hasManualDepth) {
+                    applyDepth = confirm(
+                        'You have existing depth values set. Do you want to replace them with AI suggestions?\n\n' +
+                        `Current: ${topPxInput.value}px (${document.getElementById('topDepth').value} ft) → ${bottomPxInput.value}px (${document.getElementById('bottomDepth').value} ft)\n` +
+                        `AI suggests: ${Math.round(depthAxis.top_pixel)}px (${depthAxis.top_depth} ft) → ${Math.round(depthAxis.bottom_pixel)}px (${depthAxis.bottom_depth} ft)`
+                    );
                 }
-                if (Number.isFinite(depthAxis.bottom_pixel)) {
-                    bottomPxInput.value = Math.round(depthAxis.bottom_pixel);
-                }
-                if (Number.isFinite(depthAxis.top_depth)) {
-                    document.getElementById('topDepth').value = depthAxis.top_depth;
-                }
-                if (Number.isFinite(depthAxis.bottom_depth)) {
-                    document.getElementById('bottomDepth').value = depthAxis.bottom_depth;
+
+                // Apply depth_axis only if user confirmed or no manual values exist
+                if (applyDepth) {
+                    if (Number.isFinite(depthAxis.top_pixel)) {
+                        topPxInput.value = Math.round(depthAxis.top_pixel);
+                    }
+                    if (Number.isFinite(depthAxis.bottom_pixel)) {
+                        bottomPxInput.value = Math.round(depthAxis.bottom_pixel);
+                    }
+                    if (Number.isFinite(depthAxis.top_depth)) {
+                        document.getElementById('topDepth').value = depthAxis.top_depth;
+                    }
+                    if (Number.isFinite(depthAxis.bottom_depth)) {
+                        document.getElementById('bottomDepth').value = depthAxis.bottom_depth;
+                    }
+                    
+                    // Update primaryRegion to match new depth range
+                    if (primaryRegion) {
+                        if (Number.isFinite(depthAxis.top_pixel)) {
+                            primaryRegion.top_px = Math.round(depthAxis.top_pixel);
+                        }
+                        if (Number.isFinite(depthAxis.bottom_pixel)) {
+                            primaryRegion.bottom_px = Math.round(depthAxis.bottom_pixel);
+                        }
+                    }
                 }
 
                 // Apply tracks
@@ -1808,19 +1834,20 @@
                 const topDepthInput = document.getElementById('topDepth');
                 const bottomDepthInput = document.getElementById('bottomDepth');
 
-                if (topPxInput && Number.isFinite(depthHint.top_px)) {
+                // Only apply OCR depth suggestions if fields are empty (preserve manual values)
+                if (topPxInput && Number.isFinite(depthHint.top_px) && !topPxInput.value) {
                     topPxInput.value = Math.round(clamp(depthHint.top_px, 0, imageHeight - 1));
                     applied = true;
                 }
-                if (bottomPxInput && Number.isFinite(depthHint.bottom_px)) {
+                if (bottomPxInput && Number.isFinite(depthHint.bottom_px) && !bottomPxInput.value) {
                     bottomPxInput.value = Math.round(clamp(depthHint.bottom_px, 0, imageHeight - 1));
                     applied = true;
                 }
-                if (topDepthInput && Number.isFinite(depthHint.top_depth)) {
+                if (topDepthInput && Number.isFinite(depthHint.top_depth) && !topDepthInput.value) {
                     topDepthInput.value = depthHint.top_depth;
                     applied = true;
                 }
-                if (bottomDepthInput && Number.isFinite(depthHint.bottom_depth)) {
+                if (bottomDepthInput && Number.isFinite(depthHint.bottom_depth) && !bottomDepthInput.value) {
                     bottomDepthInput.value = depthHint.bottom_depth;
                     applied = true;
                 }
