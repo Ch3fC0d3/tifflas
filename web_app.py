@@ -818,6 +818,159 @@ def call_ai_calibration(calib_payload):
     return None
 
 
+def call_ai_auto_layout(layout_payload):
+    """Ask an LLM to infer logging track layout from header text items.
+
+    layout_payload is a small dict with fields like:
+        {
+          "image": {"width_px": W, "height_px": H},
+          "items": [
+            {"text": "GR", "x": 650, "y": 120},
+            {"text": "0", "x": 620, "y": 140},
+            ...
+          ]
+        }
+
+    The model should return:
+        {
+          "tracks": [
+            {
+              "name": "GR",
+              "left_x": float,
+              "right_x": float,
+              "scale_min": number or null,
+              "scale_max": number or null,
+              "unit": string or null,
+              "hot_side": "left" or "right" or null
+            },
+            ...
+          ]
+        }
+    """
+    if not layout_payload:
+        return None
+
+    schema_hint = (
+        "You are analyzing the HEADER of a raster well log. The user has "
+        "cropped the top portion of a single log panel. You see short text "
+        "items (curve mnemonics and scale labels) with approximate x/y "
+        "centers in pixels.\n\n"
+        "Your job is to infer the logging TRACKS present across the width of "
+        "the header and return JSON ONLY describing each track.\n\n"
+        "Pixels are in the coordinate system of the provided header image, "
+        "where x=0 is the left edge and x increases to the right. The overall "
+        "image width in pixels is image.width_px.\n\n"
+        "OUTPUT FORMAT (JSON ONLY):\n"
+        "{\n"
+        "  \"tracks\": [\n"
+        "    {\n"
+        "      \"name\": string,                    // e.g. \"GR\", \"RHOB\", \"NPHI\"\n"
+        "      \"left_x\": number,                  // approximate left boundary of this track in pixels\n"
+        "      \"right_x\": number,                 // approximate right boundary of this track in pixels\n"
+        "      \"scale_min\": number or null,       // inferred scale min if obvious\n"
+        "      \"scale_max\": number or null,       // inferred scale max if obvious\n"
+        "      \"unit\": string or null,            // e.g. \"API\", \"G/CC\", \"V/V\", \"US/F\"\n"
+        "      \"hot_side\": \"left\" | \"right\" | null  // which side is higher / hot values\n"
+        "    }\n"
+        "  ]\n"
+        "}\n\n"
+        "GUIDELINES:\n"
+        "- Group header items with similar x positions into the same track.\n"
+        "- Track NAME should follow standard petrophysical conventions:\n"
+        "  * GR (Gamma Ray)\n"
+        "  * RHOB (Density)\n"
+        "  * NPHI (Neutron Porosity)\n"
+        "  * DT (Sonic)\n"
+        "  * CALI (Caliper)\n"
+        "  * SP (Spontaneous Potential)\n"
+        "- Use typical scale ranges when you see numeric labels near a curve name:\n"
+        "  * GR:   ~0–150 API\n"
+        "  * RHOB: ~1.95–2.95 g/cc\n"
+        "  * NPHI: ~-0.15–0.45 v/v\n"
+        "  * DT:   ~40–140 us/ft\n"
+        "  * CALI: ~6–16 in\n"
+        "- Infer left_x/right_x by placing boundaries midway between adjacent "
+        "curve label centers along the x-axis.\n"
+        "- Ensure left_x < right_x and tracks are ordered left-to-right.\n"
+        "- If you are unsure about scale_min/scale_max or unit, use null.\n\n"
+        "Here is the input JSON you should analyze:\n\n"
+    )
+
+    payload_text = schema_hint + json.dumps(layout_payload, indent=2)
+
+    # Prefer Gemini if configured
+    if GEMINI_API_KEY and GEMINI_MODEL_ID:
+        try:
+            model_name = GEMINI_MODEL_ID if GEMINI_MODEL_ID.startswith("models/") else f"models/{GEMINI_MODEL_ID}"
+            url = f"https://generativelanguage.googleapis.com/v1/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            body = {"contents": [{"parts": [{"text": payload_text}]}]}
+            resp = requests.post(url, json=body, timeout=40)
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    content = candidates[0].get("content", {})
+                    parts = content.get("parts", [])
+                    if parts:
+                        text = parts[0].get("text", "")
+                        layout = _extract_json_object(text)
+                        if isinstance(layout, dict):
+                            return layout
+            else:
+                print(f"Gemini API error (auto_layout): {resp.status_code} {resp.text}")
+        except Exception as exc:
+            print(f"Gemini API error (auto_layout): {exc}")
+
+    # Fallback to OpenAI if configured
+    if OPENAI_API_KEY and OPENAI_MODEL_ID:
+        try:
+            openai.api_key = OPENAI_API_KEY
+            messages = [
+                {"role": "system", "content": "You output JSON only."},
+                {"role": "user", "content": payload_text},
+            ]
+            resp = openai.ChatCompletion.create(
+                model=OPENAI_MODEL_ID,
+                messages=messages,
+                max_tokens=512,
+                temperature=0.1,
+            )
+            choices = resp.get("choices") or []
+            if choices:
+                msg = choices[0].get("message") or {}
+                content = msg.get("content") or ""
+                layout = _extract_json_object(content)
+                if isinstance(layout, dict):
+                    return layout
+        except Exception as exc:
+            print(f"OpenAI API error (auto_layout): {exc}")
+
+    # Fallback to Hugging Face text-generation if available
+    if not HF_API_TOKEN or not HF_MODEL_ID:
+        return None
+
+    try:
+        client = InferenceClient(provider="hf-inference", api_key=HF_API_TOKEN)
+    except Exception as exc:
+        print(f"HF InferenceClient init error (auto_layout): {exc}")
+        return None
+
+    try:
+        out = client.text_generation(
+            payload_text,
+            model=HF_MODEL_ID,
+            max_new_tokens=512,
+            temperature=0.1,
+        )
+        layout = _extract_json_object(out if isinstance(out, str) else str(out))
+        if isinstance(layout, dict):
+            return layout
+    except Exception as exc:
+        print(f"HF text_generation error (auto_layout): {exc}")
+
+    return None
+
+
 def hsv_red_mask(hsv_img):
     lower1, upper1 = np.array([0, 80, 80]), np.array([10, 255, 255])
     lower2, upper2 = np.array([170, 80, 80]), np.array([180, 255, 255])
@@ -1429,6 +1582,127 @@ def propose_calibration():
     return jsonify({
         'success': True,
         'calibration': calibration,
+    })
+
+
+@app.route('/api/auto_layout', methods=['POST'])
+def auto_layout_tracks():
+    data = request.json or {}
+    image_data = data.get('image')
+    region = data.get('region') or {}
+
+    if not image_data or ',' not in image_data:
+        return jsonify({'success': False, 'error': 'Missing image data'}), 400
+
+    try:
+        img_payload = image_data.split(',', 1)[1]
+        img_bytes = base64.b64decode(img_payload)
+    except Exception:
+        return jsonify({'success': False, 'error': 'Invalid image data'}), 400
+
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        return jsonify({'success': False, 'error': 'Could not decode image'}), 400
+
+    H, W, _ = img.shape
+    try:
+        left = max(0, int(region.get('left_px', 0)))
+        right = min(W, int(region.get('right_px', W)))
+        top = max(0, int(region.get('top_px', 0)))
+        bottom = min(H, int(region.get('bottom_px', H)))
+    except Exception:
+        return jsonify({'success': False, 'error': 'Invalid region'}), 400
+
+    if right <= left or bottom <= top:
+        return jsonify({'success': False, 'error': 'Empty region'}), 400
+
+    panel = img[top:bottom, left:right]
+    panel_h, panel_w, _ = panel.shape
+    if panel_h < 2 or panel_w < 2:
+        return jsonify({'success': False, 'error': 'Panel too small for layout detection'}), 400
+
+    header_h = max(10, int(panel_h * 0.15))
+    header = panel[0:header_h, :]
+
+    ok, buf = cv2.imencode('.jpg', header, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    if not ok:
+        return jsonify({'success': False, 'error': 'Failed to encode header crop'}), 500
+
+    header_bytes = buf.tobytes()
+
+    detected_text = detect_text_vision_api(header_bytes)
+    raw_text = detected_text.get('raw', []) or []
+
+    items = []
+    for entry in raw_text:
+        text = (entry.get('text') or '').strip()
+        if not text:
+            continue
+        verts = entry.get('vertices') or []
+        xs = [v.get('x') for v in verts if isinstance(v, dict) and 'x' in v]
+        ys = [v.get('y') for v in verts if isinstance(v, dict) and 'y' in v]
+        if not xs or not ys:
+            continue
+        x_center = float(sum(xs)) / len(xs)
+        y_center = float(sum(ys)) / len(ys)
+        items.append({
+            'text': text,
+            'x': x_center,
+            'y': y_center,
+        })
+
+    if not items:
+        return jsonify({'success': False, 'error': 'No header text items found for layout detection.'}), 400
+
+    layout_payload = {
+        'image': {
+            'width_px': panel_w,
+            'height_px': header_h,
+        },
+        'items': items,
+    }
+
+    layout = call_ai_auto_layout(layout_payload)
+    if not layout:
+        return jsonify({
+            'success': False,
+            'error': 'AI layout detection failed or returned no result. Check server logs.'
+        }), 500
+
+    raw_tracks = layout.get('tracks') or []
+    tracks_out = []
+    for t in raw_tracks:
+        try:
+            lx = float(t.get('left_x'))
+            rx = float(t.get('right_x'))
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(lx) or not np.isfinite(rx):
+            continue
+        lx = max(0.0, min(float(panel_w), lx))
+        rx = max(0.0, min(float(panel_w), rx))
+        if rx <= lx:
+            continue
+
+        track_out = {
+            'name': t.get('name'),
+            'left_px': float(left) + lx,
+            'right_px': float(left) + rx,
+            'scale_min': t.get('scale_min'),
+            'scale_max': t.get('scale_max'),
+            'unit': t.get('unit'),
+            'hot_side': t.get('hot_side'),
+        }
+        tracks_out.append(track_out)
+
+    if not tracks_out:
+        return jsonify({'success': False, 'error': 'AI layout returned no usable tracks.'}), 400
+
+    return jsonify({
+        'success': True,
+        'tracks': tracks_out,
+        'raw_layout': layout,
     })
 
 

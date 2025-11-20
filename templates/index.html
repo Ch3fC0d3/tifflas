@@ -169,6 +169,13 @@
             pointer-events: none;
             z-index: 20;
         }
+        .ai-track-overlay {
+            position: absolute;
+            border: 2px dashed #f97316; /* orange */
+            background: rgba(249, 115, 22, 0.12);
+            pointer-events: none;
+            z-index: 18;
+        }
         .panel-mask-overlay {
             position: absolute;
             background: #ffffff;
@@ -397,6 +404,7 @@
                     <button class="btn" onclick="generateCurveInputs()" style="margin-top: 10px;">Generate Curve Fields</button>
                     <button class="btn" type="button" onclick="autoFillCurveTypes()" style="margin-top: 10px; margin-left: 8px;">✨ Auto-fill curve types</button>
                     <button class="btn" type="button" onclick="aiCalibratePanel()" style="margin-top: 10px; margin-left: 8px;">⭐ AI calibrate panel</button>
+                    <button class="btn" type="button" onclick="aiDetectTracks()" style="margin-top: 10px; margin-left: 8px;">🤖 AI detect tracks</button>
                     <div class="hint-text" style="margin-top: 4px;">Uses scale ranges (GR/RHOB/NPHI/DT) to guess curve types for each track; you can still edit them.</div>
                     <div class="hint-text" style="margin-top: 4px;">Uses Vision + LLM to propose depth axis and all track calibrations from the selected panel; you can still edit them.</div>
                 </div>
@@ -1333,6 +1341,105 @@
             }
         }
 
+        async function aiDetectTracks() {
+            if (!uploadedImage || !imageWidth || !imageHeight) {
+                showStatus('Please upload an image first.', 'info');
+                return;
+            }
+
+            if (!primaryRegion || !Number.isFinite(primaryRegion.left_px) || !Number.isFinite(primaryRegion.right_px)) {
+                showStatus('Please select a panel first (click "Select panel from image" and drag a box).', 'info');
+                return;
+            }
+
+            const topPxInput = document.getElementById('topPx');
+            const bottomPxInput = document.getElementById('bottomPx');
+            const topPx = topPxInput ? parseFloat(topPxInput.value) : 0;
+            const bottomPx = bottomPxInput ? parseFloat(bottomPxInput.value) : imageHeight - 1;
+
+            if (!Number.isFinite(topPx) || !Number.isFinite(bottomPx) || bottomPx <= topPx) {
+                showStatus('Invalid depth pixel range; please select a panel first.', 'info');
+                return;
+            }
+
+            showStatus('⏳ Asking AI to detect tracks from header (Vision + LLM)...', 'info');
+
+            try {
+                const resp = await fetch('/api/auto_layout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image: uploadedImage,
+                        region: {
+                            left_px: primaryRegion.left_px,
+                            right_px: primaryRegion.right_px,
+                            top_px: topPx,
+                            bottom_px: bottomPx,
+                        }
+                    })
+                });
+
+                const data = await resp.json();
+                if (!data.success) {
+                    showStatus(`AI track detection failed: ${data.error || 'unknown error'}`, 'error');
+                    clearTrackOverlays();
+                    return;
+                }
+
+                const tracks = data.tracks || [];
+                if (!tracks.length) {
+                    showStatus('AI track detection returned no tracks.', 'info');
+                    clearTrackOverlays();
+                    return;
+                }
+
+                const numCurvesInput = document.getElementById('numCurves');
+                numCurvesInput.value = Math.min(6, tracks.length);
+
+                // generateCurveInputs can accept track [left, right] pairs
+                const tracksForInputs = tracks.slice(0, 6).map(t => [Math.round(t.left_px), Math.round(t.right_px)]);
+                generateCurveInputs(tracksForInputs);
+
+                for (let i = 0; i < Math.min(6, tracks.length); i++) {
+                    const t = tracks[i];
+
+                    if (Number.isFinite(t.scale_min)) {
+                        const leftValEl = document.getElementById(`leftVal${i}`);
+                        if (leftValEl) leftValEl.value = t.scale_min;
+                    }
+                    if (Number.isFinite(t.scale_max)) {
+                        const rightValEl = document.getElementById(`rightVal${i}`);
+                        if (rightValEl) rightValEl.value = t.scale_max;
+                    }
+                    if (t.unit) {
+                        const unitEl = document.getElementById(`unit${i}`);
+                        const lasUnitEl = document.getElementById(`lasUnit${i}`);
+                        if (unitEl) unitEl.value = t.unit;
+                        if (lasUnitEl) lasUnitEl.value = t.unit;
+                    }
+                    if (t.name) {
+                        const typeEl = document.getElementById(`type${i}`);
+                        if (typeEl) {
+                            const nameUpper = t.name.toUpperCase();
+                            if (['GR', 'RHOB', 'NPHI', 'DT', 'CALI', 'SP'].includes(nameUpper)) {
+                                typeEl.value = nameUpper;
+                                syncCurveTypeToLabels(i);
+                            }
+                        }
+                    }
+                }
+
+                renderDepthOverlays();
+                renderPrimaryRegionOverlay();
+                renderTrackOverlays(tracks);
+                updateCurveScaleHints();
+                showStatus(`✅ AI detected ${tracks.length} track(s). Review and adjust as needed.`, 'success');
+            } catch (err) {
+                showStatus(`AI track detection request failed: ${err.message}`, 'error');
+                clearTrackOverlays();
+            }
+        }
+
         function generateValidationReport() {
             const numCurvesInput = document.getElementById('numCurves');
             const numCurves = numCurvesInput ? (parseInt(numCurvesInput.value) || 0) : 0;
@@ -1846,6 +1953,62 @@
             makeMask(0, topDom + heightDom, rect.width, rect.height - (topDom + heightDom));
             makeMask(0, topDom, xDom, heightDom);
             makeMask(xDom + widthDom, topDom, rect.width - (xDom + widthDom), heightDom);
+        }
+
+        function clearTrackOverlays() {
+            const overlay = document.getElementById('overlay');
+            if (!overlay) return;
+            const boxes = overlay.querySelectorAll('.ai-track-overlay');
+            boxes.forEach((el) => el.remove());
+        }
+
+        function renderTrackOverlays(trackBoxes) {
+            const overlay = document.getElementById('overlay');
+            const img = document.getElementById('imagePreview');
+            if (!overlay || !img || !trackBoxes || !trackBoxes.length || !imageWidth || !imageHeight) {
+                clearTrackOverlays();
+                return;
+            }
+
+            const rect = img.getBoundingClientRect();
+            if (!rect.width || !rect.height) {
+                clearTrackOverlays();
+                return;
+            }
+
+            const scaleX = rect.width / imageWidth;
+
+            // Vertical band follows current depth config, if valid
+            let topDom = 0;
+            let heightDom = rect.height;
+            const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
+            if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
+                const scaleY = rect.height / imageHeight;
+                topDom = cfg.top_px * scaleY;
+                heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
+            }
+
+            clearTrackOverlays();
+
+            trackBoxes.forEach((t) => {
+                const leftPx = Number(t.left_px);
+                const rightPx = Number(t.right_px);
+                if (!Number.isFinite(leftPx) || !Number.isFinite(rightPx) || rightPx <= leftPx) return;
+
+                const xDom = leftPx * scaleX;
+                const widthDom = (rightPx - leftPx) * scaleX;
+
+                const box = document.createElement('div');
+                box.className = 'ai-track-overlay';
+                box.style.left = `${xDom}px`;
+                box.style.top = `${topDom}px`;
+                box.style.width = `${widthDom}px`;
+                box.style.height = `${heightDom}px`;
+                if (t.name) {
+                    box.title = `AI track: ${t.name}`;
+                }
+                overlay.appendChild(box);
+            });
         }
 
         function findPhraseRegionInOcr(phrase) {
