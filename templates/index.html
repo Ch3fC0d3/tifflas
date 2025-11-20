@@ -465,6 +465,7 @@
 
         const DEPTH_SESSION_KEY = 'tifflas_depth_config_v1';
         const INTRO_SESSION_KEY = 'tifflas_intro_seen_v1';
+        const REGION_SESSION_KEY = 'tifflas_primary_region_v1';
 
         function openIntroModal() {
             const backdrop = document.getElementById('introModalBackdrop');
@@ -744,6 +745,34 @@
                 if (Number.isFinite(cfg.bottom_depth)) bottomDepthInput.value = cfg.bottom_depth;
                 if (cfg.unit) depthUnit.value = cfg.unit;
                 return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function savePrimaryRegionToSession() {
+            try {
+                if (!primaryRegion) return;
+                sessionStorage.setItem(REGION_SESSION_KEY, JSON.stringify(primaryRegion));
+            } catch (e) {
+                // ignore storage errors
+            }
+        }
+
+        function loadPrimaryRegionFromSession() {
+            try {
+                const raw = sessionStorage.getItem(REGION_SESSION_KEY);
+                if (!raw) return false;
+                const region = JSON.parse(raw);
+                if (!region) return false;
+                
+                // Validate region has required fields
+                if (Number.isFinite(region.left_px) && Number.isFinite(region.right_px)) {
+                    primaryRegion = region;
+                    renderPrimaryRegionOverlay();
+                    return true;
+                }
+                return false;
             } catch (e) {
                 return false;
             }
@@ -1033,6 +1062,7 @@
                 renderPrimaryRegionOverlay();
                 renderDepthOverlays();
                 updateSelectionSummary();
+                savePrimaryRegionToSession(); // Save orange box to session
                 showStatus(`Using ${detectedTracks.length || 0} tracks in selected panel.`, 'success');
                 return;
             }
@@ -1134,6 +1164,7 @@
             depthAnchorMode = null;
             renderDepthOverlays();
             renderPrimaryRegionOverlay(); // Redraw orange box to reflect updated bounds
+            savePrimaryRegionToSession(); // Save updated orange box to session
         });
 
         async function handleFile(file) {
@@ -1209,11 +1240,13 @@
                     generateCurveInputs();
                     const appliedHints = applyOcrSuggestions();
                     const usedSessionDepth = loadDepthConfigFromSession();
+                    const usedSessionRegion = loadPrimaryRegionFromSession(); // Restore orange box from session
                     
                     const aiNote = metadataApplied ? ' ✨ Header metadata auto-applied.' : (appliedHints ? ' ✨ AI suggestions applied.' : '');
                     const sessionNote = usedSessionDepth ? ' (reused last depth setup this session)' : '';
+                    const regionNote = usedSessionRegion ? ' (restored panel selection)' : '';
 
-                    showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}${sessionNote}`, 'success');
+                    showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}${sessionNote}${regionNote}`, 'success');
                     renderAiInsights();
                     renderDepthOverlays();
                     updateSelectionSummary();
