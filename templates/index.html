@@ -1917,15 +1917,23 @@
             const xDomRight = (rightPx / denomX) * rect.width;
             const widthDom = xDomRight - xDom;
 
-            // Vertical placement follows the current depth pixel configuration, if valid.
+            // Vertical placement follows the same mapping as renderDepthOverlays
             let topDom = 0;
             let heightDom = rect.height;
             const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
             if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
-                const denomY = Math.max(1, imageHeight - 1);
-                topDom = (cfg.top_px / denomY) * rect.height;
-                const bottomDom = (cfg.bottom_px / denomY) * rect.height;
-                heightDom = bottomDom - topDom;
+                const scaleY = rect.height / imageHeight;
+                topDom = cfg.top_px * scaleY;
+                heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
+            }
+
+            // Nudge the top edge down slightly in screen space so the visible
+            // border does not appear above the graph, while keeping the
+            // bottom edge fixed.
+            const topFudgePx = 2;
+            if (heightDom > topFudgePx) {
+                topDom += topFudgePx;
+                heightDom -= topFudgePx;
             }
 
             const box = document.createElement('div');
@@ -1980,15 +1988,22 @@
             }
             const denomX = Math.max(1, imageWidth - 1);
 
-            // Vertical band follows current depth config, if valid
+            // Vertical band follows current depth config, using same mapping as renderDepthOverlays
             let topDom = 0;
             let heightDom = rect.height;
             const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
             if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
-                const denomY = Math.max(1, imageHeight - 1);
-                topDom = (cfg.top_px / denomY) * rect.height;
-                const bottomDom = (cfg.bottom_px / denomY) * rect.height;
-                heightDom = bottomDom - topDom;
+                const scaleY = rect.height / imageHeight;
+                topDom = cfg.top_px * scaleY;
+                heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
+            }
+
+            // Apply the same small top-edge fudge as the primary region so
+            // orange AI track boxes visually align with the blue panel box.
+            const topFudgePx = 2;
+            if (heightDom > topFudgePx) {
+                topDom += topFudgePx;
+                heightDom -= topFudgePx;
             }
 
             clearTrackOverlays();
