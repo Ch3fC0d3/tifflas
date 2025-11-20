@@ -605,6 +605,54 @@ def _extract_json_object(text: str):
     return None
 
 
+def validate_and_fix_calibration(calibration):
+    """Validate calibration and fix obvious curve type/scale mismatches."""
+    if not isinstance(calibration, dict):
+        return calibration
+    
+    tracks = calibration.get('tracks', [])
+    if not tracks:
+        return calibration
+    
+    # Define expected scale ranges for each curve type
+    expected_scales = {
+        'GR': (0, 150),      # API units
+        'RHOB': (1.5, 3.5),  # g/cc
+        'NPHI': (-0.2, 0.6), # v/v (porosity)
+        'DT': (40, 200),     # us/ft (sonic)
+        'CALI': (6, 16),     # inches
+        'SP': (-150, 50),    # mV
+    }
+    
+    for track in tracks:
+        name = (track.get('name') or '').upper()
+        scale_min = track.get('scale_min')
+        scale_max = track.get('scale_max')
+        
+        if not name or not isinstance(scale_min, (int, float)) or not isinstance(scale_max, (int, float)):
+            continue
+        
+        # Check if scale matches the curve type
+        if name in expected_scales:
+            exp_min, exp_max = expected_scales[name]
+            scale_range = scale_max - scale_min
+            exp_range = exp_max - exp_min
+            
+            # If scale is way off (more than 3x different), try to find correct type
+            if scale_range > exp_range * 3 or scale_range < exp_range / 3:
+                # Try to match scale to correct curve type
+                for curve_type, (type_min, type_max) in expected_scales.items():
+                    type_range = type_max - type_min
+                    # Check if scale is within reasonable bounds for this type
+                    if (abs(scale_min - type_min) < type_range * 0.5 and 
+                        abs(scale_max - type_max) < type_range * 0.5):
+                        print(f"AI calibration: Fixing curve type from {name} to {curve_type} based on scale {scale_min}-{scale_max}")
+                        track['name'] = curve_type
+                        break
+    
+    return calibration
+
+
 def call_ai_calibration(calib_payload):
     """Ask an LLM to propose depth_axis and track calibration JSON.
 
@@ -676,13 +724,22 @@ def call_ai_calibration(calib_payload):
         "- top_pixel should be the y_px of the topmost depth label\n"
         "- bottom_pixel should be the y_px of the bottommost depth label\n\n"
         "TRACK CALIBRATION RULES:\n"
-        "- Use typical petrophysical curve ranges:\n"
-        "  * GR: 0-150 API\n"
-        "  * RHOB: 1.95-2.95 g/cc\n"
-        "  * NPHI: -0.15-0.45 v/v\n"
-        "  * DT: 40-140 us/ft\n"
-        "- Identify curve names from header text (GR, GAMMA, RHOB, DENS, NPHI, NEUT, DT, SONIC, etc.)\n"
-        "- Each track should have left_x < right_x\n\n"
+        "- Match curve names from header_text_boxes to standard petrophysical curves\n"
+        "- CRITICAL: The curve NAME must match its SCALE RANGE:\n"
+        "  * GR (Gamma Ray): scale_min=0, scale_max=150, units=API\n"
+        "  * RHOB (Density): scale_min=1.95, scale_max=2.95, units=g/cc\n"
+        "  * NPHI (Neutron Porosity): scale_min=-0.15, scale_max=0.45, units=v/v\n"
+        "  * DT (Sonic): scale_min=40, scale_max=140, units=us/ft\n"
+        "  * CALI (Caliper): scale_min=6, scale_max=16, units=inches\n"
+        "- Common header text variations:\n"
+        "  * 'GR', 'GAMMA', 'Gamma Ray' → name='GR'\n"
+        "  * 'RHOB', 'DENS', 'Density', 'RHO' → name='RHOB'\n"
+        "  * 'NPHI', 'NEUT', 'Neutron', 'PHI' → name='NPHI'\n"
+        "  * 'DT', 'SONIC', 'AC', 'Sonic' → name='DT'\n"
+        "- Each track should have left_x < right_x\n"
+        "- Tracks are ordered left-to-right across the panel\n\n"
+        "EXAMPLE: If you see header text 'GR' at x=100, and the track spans x=80-120,\n"
+        "then: name='GR', left_x=80, right_x=120, scale_min=0, scale_max=150\n\n"
         "Here is the input JSON you should analyze:\n\n"
     )
 
@@ -1129,6 +1186,9 @@ def propose_calibration():
             'success': False,
             'error': 'AI calibration failed or returned no result. Check server logs.'
         }), 500
+
+    # Validate and fix obvious mismatches
+    calibration = validate_and_fix_calibration(calibration)
 
     return jsonify({
         'success': True,
