@@ -912,7 +912,14 @@
             const top = Math.min(panelSelectStart.y, yImg);
             const bottom = Math.max(panelSelectStart.y, yImg);
 
-            primaryRegion = { left_px: left, right_px: right, track_indices: [] };
+            // Store full panel bounds including vertical extent
+            primaryRegion = { 
+                left_px: left, 
+                right_px: right, 
+                top_px: top, 
+                bottom_px: bottom, 
+                track_indices: [] 
+            };
 
             // Have the box control depth pixels as well
             const topPxInput = document.getElementById('topPx');
@@ -1079,6 +1086,11 @@
                         topDepthInput.value = depthVal;
                     }
                 }
+                
+                // Update primaryRegion to match new depth range
+                if (primaryRegion) {
+                    primaryRegion.top_px = usedY;
+                }
             } else if (depthAnchorMode === 'bottom') {
                 const bottomPxInput = document.getElementById('bottomPx');
                 const bottomDepthInput = document.getElementById('bottomDepth');
@@ -1094,10 +1106,16 @@
                         bottomDepthInput.value = depthVal;
                     }
                 }
+                
+                // Update primaryRegion to match new depth range
+                if (primaryRegion) {
+                    primaryRegion.bottom_px = usedY;
+                }
             }
 
             depthAnchorMode = null;
             renderDepthOverlays();
+            renderPrimaryRegionOverlay(); // Redraw orange box to reflect updated bounds
         });
 
         async function handleFile(file) {
@@ -1915,14 +1933,23 @@
             const xDom = leftPx * scaleX;
             const widthDom = (rightPx - leftPx) * scaleX;
 
-            // Vertical placement follows the current depth pixel configuration, if valid.
+            // Vertical placement: use primaryRegion bounds if available, otherwise fall back to depth config
             let topDom = 0;
             let heightDom = rect.height;
-            const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
-            if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
-                const scaleY = rect.height / imageHeight;
-                topDom = cfg.top_px * scaleY;
-                heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
+            const scaleY = rect.height / imageHeight;
+            
+            if (Number.isFinite(primaryRegion.top_px) && Number.isFinite(primaryRegion.bottom_px) && 
+                primaryRegion.bottom_px > primaryRegion.top_px) {
+                // Use stored panel selection bounds
+                topDom = primaryRegion.top_px * scaleY;
+                heightDom = (primaryRegion.bottom_px - primaryRegion.top_px) * scaleY;
+            } else {
+                // Fall back to depth config from inputs
+                const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
+                if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
+                    topDom = cfg.top_px * scaleY;
+                    heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
+                }
             }
 
             const box = document.createElement('div');
@@ -2254,6 +2281,24 @@
             const btn = document.getElementById('digitizeBtn');
             btn.disabled = true;
             showStatus('🔄 Processing...', 'info');
+
+            // Ensure depth pixel range matches panel selection if panel is selected
+            if (primaryRegion && Number.isFinite(primaryRegion.top_px) && Number.isFinite(primaryRegion.bottom_px)) {
+                const topPxInput = document.getElementById('topPx');
+                const bottomPxInput = document.getElementById('bottomPx');
+                const currentTop = parseInt(topPxInput.value);
+                const currentBottom = parseInt(bottomPxInput.value);
+                
+                // If depth range doesn't match panel selection, use panel bounds
+                if (currentTop !== Math.round(primaryRegion.top_px) || currentBottom !== Math.round(primaryRegion.bottom_px)) {
+                    console.warn('Depth pixel range mismatch detected. Auto-correcting to match panel selection.');
+                    topPxInput.value = Math.round(primaryRegion.top_px);
+                    bottomPxInput.value = Math.round(primaryRegion.bottom_px);
+                    showStatus(`ℹ️ Depth range adjusted to match panel selection (${Math.round(primaryRegion.top_px)}–${Math.round(primaryRegion.bottom_px)} px)`, 'info');
+                    await new Promise(resolve => setTimeout(resolve, 1500)); // Brief pause to show message
+                    showStatus('🔄 Processing...', 'info');
+                }
+            }
 
             // Build config
             const config = {
