@@ -447,6 +447,8 @@
         let panelSelectMode = false;
         let panelSelectStart = null; // { x, y } first corner of panel selection
         let primaryRegionDrag = { active: false, edge: null };
+        let lastDigitizedDepth = null;   // array of depths from last /digitize
+        let lastDigitizedCurves = null;  // { curveId: { unit, values[] } }
 
         // OCR phrase search state (Jump to label)
         let ocrSearchMatches = [];
@@ -600,6 +602,110 @@
             };
         }
 
+        function pixelToDepthFromConfig(yImg, depthCfg) {
+            if (!depthCfg) return null;
+            const topPx = Number(depthCfg.top_px);
+            const bottomPx = Number(depthCfg.bottom_px);
+            const topDepth = Number(depthCfg.top_depth);
+            const bottomDepth = Number(depthCfg.bottom_depth);
+            if (!Number.isFinite(topPx) || !Number.isFinite(bottomPx) ||
+                !Number.isFinite(topDepth) || !Number.isFinite(bottomDepth) ||
+                bottomPx === topPx) {
+                return null;
+            }
+            const frac = (yImg - topPx) / (bottomPx - topPx);
+            return topDepth + frac * (bottomDepth - topDepth);
+        }
+
+        function pixelToTrackValue(xImg, track) {
+            if (!track) return null;
+            const leftX = track.leftX;
+            const rightX = track.rightX;
+            const scaleMin = track.scaleMin;
+            const scaleMax = track.scaleMax;
+            const denom = rightX - leftX;
+            if (!Number.isFinite(leftX) || !Number.isFinite(rightX) ||
+                !Number.isFinite(scaleMin) || !Number.isFinite(scaleMax) ||
+                Math.abs(denom) < 1e-3) {
+                return null;
+            }
+            const frac = (xImg - leftX) / denom;
+            return scaleMin + frac * (scaleMax - scaleMin);
+        }
+
+        function valueAtDepth1D(depth, depths, values) {
+            if (!Array.isArray(depths) || !Array.isArray(values) ||
+                depths.length !== values.length || depths.length === 0) {
+                return null;
+            }
+            const first = depths[0], last = depths[depths.length - 1];
+            const minD = Math.min(first, last);
+            const maxD = Math.max(first, last);
+            if (!Number.isFinite(depth) || depth < minD || depth > maxD) return null;
+
+            let lo = 0, hi = depths.length - 1;
+            const ascending = first <= last;
+            while (hi - lo > 1) {
+                const mid = (lo + hi) >> 1;
+                const dMid = depths[mid];
+                if ((ascending && dMid < depth) || (!ascending && dMid > depth)) lo = mid;
+                else hi = mid;
+            }
+            const d0 = depths[lo], d1 = depths[hi];
+            const v0 = values[lo], v1 = values[hi];
+            const denom = d1 - d0;
+            if (!Number.isFinite(denom) || Math.abs(denom) < 1e-6) return v0;
+            const t = (depth - d0) / denom;
+            return v0 + t * (v1 - v0);
+        }
+
+        function getTrackCalibrationsSnapshot() {
+            const numCurvesInput = document.getElementById('numCurves');
+            const numCurves = numCurvesInput ? (parseInt(numCurvesInput.value) || 0) : 0;
+            const tracks = [];
+            for (let i = 0; i < numCurves; i++) {
+                const leftPxEl = document.getElementById(`leftPx${i}`);
+                const rightPxEl = document.getElementById(`rightPx${i}`);
+                const leftValEl = document.getElementById(`leftVal${i}`);
+                const rightValEl = document.getElementById(`rightVal${i}`);
+                if (!leftPxEl || !rightPxEl || !leftValEl || !rightValEl) continue;
+
+                const leftX = parseFloat(leftPxEl.value);
+                const rightX = parseFloat(rightPxEl.value);
+                const scaleMin = parseFloat(leftValEl.value);
+                const scaleMax = parseFloat(rightValEl.value);
+                if (!Number.isFinite(leftX) || !Number.isFinite(rightX) ||
+                    !Number.isFinite(scaleMin) || !Number.isFinite(scaleMax) ||
+                    rightX <= leftX) {
+                    continue;
+                }
+
+                const typeEl = document.getElementById(`type${i}`);
+                const nameEl = document.getElementById(`name${i}`);
+                const lasMnemonicEl = document.getElementById(`lasMnemonic${i}`);
+                const unitEl = document.getElementById(`unit${i}`);
+                const lasUnitEl = document.getElementById(`lasUnit${i}`);
+
+                const id = (lasMnemonicEl && lasMnemonicEl.value
+                    ? lasMnemonicEl.value.trim()
+                    : (typeEl && typeEl.value ? typeEl.value : `CURVE${i + 1}`));
+
+                tracks.push({
+                    id: id.toUpperCase(),
+                    index: i,
+                    name: typeEl && typeEl.value ? typeEl.value : id,
+                    displayName: nameEl && nameEl.value ? nameEl.value : '',
+                    leftX,
+                    rightX,
+                    scaleMin,
+                    scaleMax,
+                    displayUnit: unitEl && unitEl.value ? unitEl.value : '',
+                    lasUnit: lasUnitEl && lasUnitEl.value ? lasUnitEl.value : ''
+                });
+            }
+            return tracks;
+        }
+
         function saveDepthConfigToSession() {
             try {
                 const cfg = getDepthConfigFromInputs();
@@ -699,6 +805,47 @@
             const xImg = Math.round(xNorm * (imageWidth - 1));
             const yImg = Math.round(yNorm * (imageHeight - 1));
 
+            const depthCfg = getDepthConfigFromInputs();
+            const depth = pixelToDepthFromConfig(yImg, depthCfg);
+
+            let text = `Mouse pixel: X=${xImg}, Y=${yImg}`;
+            if (Number.isFinite(depth)) {
+                const unit = depthCfg ? depthCfg.unit : '';
+                text += ` • Depth: ${depth.toFixed(1)} ${unit}`;
+            }
+
+            // Find active track under cursor
+            const tracks = getTrackCalibrationsSnapshot();
+            let valueText = '';
+            if (tracks && tracks.length && Number.isFinite(xImg)) {
+                const activeTrack = tracks.find(t => xImg >= t.leftX && xImg <= t.rightX);
+                if (activeTrack && Number.isFinite(depth)) {
+                    let value = null;
+
+                    // Prefer actual digitized curve if available
+                    if (lastDigitizedDepth && lastDigitizedCurves &&
+                        lastDigitizedCurves[activeTrack.id] &&
+                        Array.isArray(lastDigitizedCurves[activeTrack.id].values)) {
+                        value = valueAtDepth1D(
+                            depth,
+                            lastDigitizedDepth,
+                            lastDigitizedCurves[activeTrack.id].values
+                        );
+                    }
+
+                    // Fallback: use scale mapping even before digitization
+                    if (value == null) {
+                        value = pixelToTrackValue(xImg, activeTrack);
+                    }
+
+                    if (Number.isFinite(value)) {
+                        const label = activeTrack.displayName || activeTrack.name || activeTrack.id;
+                        const unit = activeTrack.lasUnit || activeTrack.displayUnit || '';
+                        valueText = ` • ${label}: ${value.toFixed(2)}${unit ? ' ' + unit : ''}`;
+                    }
+                }
+            }
+
             let suffix = '';
             if (depthAnchorMode === 'top') {
                 suffix = ' • anchoring TOP';
@@ -706,7 +853,7 @@
                 suffix = ' • anchoring BOTTOM';
             }
 
-            mousePixelReadout.textContent = `Mouse pixel: X=${xImg}, Y=${yImg}${suffix}`;
+            mousePixelReadout.textContent = text + valueText + suffix;
         });
 
         // Marquee-style panel selection (click-drag-release)
@@ -2008,6 +2155,10 @@
                 const data = await response.json();
 
                 if (data.success) {
+                    // Store digitized data for cursor readout
+                    lastDigitizedDepth = Array.isArray(data.digitized_depth) ? data.digitized_depth : null;
+                    lastDigitizedCurves = data.digitized_curves || null;
+
                     // Download LAS file
                     const blob = new Blob([data.las_content], { type: 'text/plain' });
                     const url = URL.createObjectURL(blob);

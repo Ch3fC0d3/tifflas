@@ -2290,6 +2290,20 @@ def digitize():
     ai_payload = build_ai_analysis_payload(las_content, detected_text, curves)
     ai_summary = call_hf_curve_analysis(ai_payload) if ai_payload else None
 
+    # Prepare digitized vectors for frontend cursor readout
+    try:
+        digitized_depth = las_depth.tolist()
+        digitized_curves = {
+            name: {
+                "unit": meta.get("unit", ""),
+                "values": (meta.get("values") or []).tolist(),
+            }
+            for name, meta in las_curve_data.items()
+        }
+    except Exception:
+        digitized_depth = None
+        digitized_curves = None
+
     return jsonify({
         'success': True,
         'las_content': las_content,
@@ -2299,7 +2313,9 @@ def digitize():
         'depth_warnings': depth_warnings,
         'curve_traces': curve_traces,
         'ai_payload': ai_payload,
-        'ai_summary': ai_summary
+        'ai_summary': ai_summary,
+        'digitized_depth': digitized_depth,
+        'digitized_curves': digitized_curves,
     })
 
 @app.route('/health')
