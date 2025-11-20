@@ -801,13 +801,33 @@
         const mousePixelReadout = document.getElementById('mousePixelReadout');
 
         imagePreview.addEventListener('mousemove', (event) => {
-            if (!mousePixelReadout || !imageWidth || !imageHeight) return;
+            if (!mousePixelReadout) return;
 
             const rect = imagePreview.getBoundingClientRect();
             if (!rect.width || !rect.height) return;
 
+            // Prefer the known imageWidth/imageHeight, but fall back to the
+            // actual image element's dimensions so the readout still works
+            // even if globals were not initialized for some reason.
+            let w = imageWidth || imagePreview.naturalWidth || imagePreview.width;
+            let h = imageHeight || imagePreview.naturalHeight || imagePreview.height;
+
             const x = event.clientX - rect.left;
             const y = event.clientY - rect.top;
+
+            if (!w || !h) {
+                // As a last resort, still show approximate DOM coordinates.
+                mousePixelReadout.textContent = `Mouse pixel: X≈${Math.round(x)}, Y≈${Math.round(y)}`;
+                return;
+            }
+
+            // If globals were zero, lock them in now so all other logic
+            // (depth, tracks) uses consistent image coordinates.
+            if (!imageWidth || !imageHeight) {
+                imageWidth = w;
+                imageHeight = h;
+            }
+
             const xNorm = x / rect.width;
             const yNorm = y / rect.height;
             const xImg = Math.round(xNorm * (imageWidth - 1));
@@ -1927,6 +1947,14 @@
                 heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
             }
 
+            // Nudge the top edge down slightly in screen space so the visible
+            // border does not appear above the graph, while keeping the
+            // bottom edge fixed.
+            const topFudgePx = 2;
+            if (heightDom > topFudgePx) {
+                topDom += topFudgePx;
+                heightDom -= topFudgePx;
+            }
 
             const box = document.createElement('div');
             box.className = 'primary-region-overlay';
@@ -1990,7 +2018,13 @@
                 heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
             }
 
-            // Vertical band exactly from top_px to bottom_px in image pixels.
+            // Apply the same small top-edge fudge as the primary region so
+            // orange AI track boxes visually align with the blue panel box.
+            const topFudgePx = 2;
+            if (heightDom > topFudgePx) {
+                topDom += topFudgePx;
+                heightDom -= topFudgePx;
+            }
 
             clearTrackOverlays();
 
