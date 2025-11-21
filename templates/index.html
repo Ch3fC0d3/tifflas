@@ -1949,9 +1949,10 @@
 
             // Nudge the top edge down slightly in screen space so the visible
             // border does not appear above the graph, while keeping the
-            // bottom edge fixed. Use a height-scaled fudge so no extra
-            // band remains above the selected panel.
-            const topFudgePx = Math.min(40, Math.max(10, rect.height * 0.06));
+            // bottom edge fixed. Use a small constant fudge tuned for the
+            // preview size so the top border sits just above the grid without
+            // cutting off too much.
+            const topFudgePx = 7; // tuned between previous 5px (too high) and 10px (too low)
             if (heightDom > topFudgePx) {
                 topDom += topFudgePx;
                 heightDom -= topFudgePx;
@@ -2021,7 +2022,7 @@
 
             // Apply the same top-edge fudge as the primary region so
             // orange AI track boxes visually align with the blue panel box.
-            const topFudgePx = Math.min(40, Math.max(10, rect.height * 0.06));
+            const topFudgePx = 7;
             if (heightDom > topFudgePx) {
                 topDom += topFudgePx;
                 heightDom -= topFudgePx;
