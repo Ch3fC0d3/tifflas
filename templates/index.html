@@ -1952,7 +1952,7 @@
             // bottom edge fixed. Use a small constant fudge tuned for the
             // preview size so the top border sits just above the grid without
             // cutting off too much.
-            const topFudgePx = 8; // tuned between previous 5px (too high) and 10px (too low)
+            const topFudgePx = 20; // set to 20px as requested
             if (heightDom > topFudgePx) {
                 topDom += topFudgePx;
                 heightDom -= topFudgePx;
@@ -2022,7 +2022,7 @@
 
             // Apply the same top-edge fudge as the primary region so
             // orange AI track boxes visually align with the blue panel box.
-            const topFudgePx = 8;
+            const topFudgePx = 20;
             if (heightDom > topFudgePx) {
                 topDom += topFudgePx;
                 heightDom -= topFudgePx;
