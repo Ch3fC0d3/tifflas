@@ -101,6 +101,34 @@
             font-size: 14px;
             z-index: 999;
         }
+        .floating-controls {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 998;
+        }
+        .floating-controls .btn {
+            padding: 6px 10px;
+            font-size: 0.8em;
+        }
+        @media (max-width: 900px) {
+            .floating-controls {
+                top: auto;
+                bottom: 20px;
+                right: 10px;
+                transform: none;
+                flex-direction: row;
+                flex-wrap: wrap;
+                background: rgba(255, 255, 255, 0.96);
+                padding: 6px;
+                border-radius: 8px;
+                box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+            }
+        }
         .curve-config {
             background: white;
             border: 2px solid #ddd;
@@ -129,6 +157,10 @@
         #overlay {
             position: relative;
             display: inline-block;
+        }
+        .overlay-scroll {
+            max-height: 75vh;
+            overflow-y: auto;
         }
         .track-box {
             position: absolute;
@@ -317,6 +349,14 @@
 
         <div class="content">
             <button type="button" class="btn scroll-bottom-btn" onclick="scrollToBottom()">⬇ Scroll to bottom</button>
+            <div id="floatingControls" class="floating-controls hidden">
+                <button type="button" class="btn" onclick="beginPanelSelection()">📦 Select panel</button>
+                <button type="button" class="btn" onclick="clearPanelSelection()">🧹 Clear selection</button>
+                <button type="button" class="btn" onclick="setDepthAnchorMode('top')">⬆ Set top from image</button>
+                <button type="button" class="btn" onclick="setDepthAnchorMode('bottom')">⬇ Set bottom from image</button>
+                <button type="button" class="btn" onclick="aiCalibratePanel()">⭐ AI calibrate</button>
+                <button type="button" class="btn" onclick="runDigitization()">🚀 Digitize</button>
+            </div>
             <!-- Step 1: Upload -->
             <div class="step">
                 <h2>Step 1: Upload Image</h2>
@@ -356,8 +396,10 @@
                     <div class="hint-text" id="selectionSummary">No panel selected. Using full image width and depth.</div>
                     <div class="hint-text">Click and drag directly on the image to draw a selection box around the log copy you want to digitize.</div>
                 </div>
-                <div id="overlay" style="margin-top: 14px;">
-                    <img id="imagePreview" alt="Log preview">
+                <div class="overlay-scroll" style="margin-top: 14px;">
+                    <div id="overlay">
+                        <img id="imagePreview" alt="Log preview">
+                    </div>
                 </div>
             </div>
 
@@ -1155,14 +1197,18 @@
                     // Show preview
                     const imgEl = document.getElementById('imagePreview');
                     imgEl.onload = () => {
-                        clearPrimaryRegionOverlay();
-                        renderLabelOverlays();
+                        imageWidth = imgEl.naturalWidth;
+                        imageHeight = imgEl.naturalHeight;
                         renderDepthOverlays();
                     };
                     imgEl.src = data.image;
                     document.getElementById('imageDims').textContent = `${imageWidth} × ${imageHeight} pixels`;
                     document.getElementById('previewStep').classList.remove('hidden');
                     document.getElementById('configStep').classList.remove('hidden');
+                    const floating = document.getElementById('floatingControls');
+                    if (floating) {
+                        floating.classList.remove('hidden');
+                    }
                     
                     // Pre-fill with defaults then apply AI suggestions
                     document.getElementById('topPx').value = 0;
@@ -2258,6 +2304,28 @@
                 line.appendChild(label);
                 overlay.appendChild(line);
             }
+
+            // Always mark the configured top and bottom depths explicitly on the
+            // left so you can visually confirm they match the log scale (e.g.
+            // top 4470, bottom 10000). These labels persist as long as the
+            // depth config is set.
+            const addExtremeLabel = (yPx, depthVal) => {
+                if (!Number.isFinite(yPx) || !Number.isFinite(depthVal)) return;
+                if (yPx < 0 || yPx > imageHeight - 1) return;
+                const yDom = (yPx / imageHeight) * rect.height;
+                const line = document.createElement('div');
+                line.className = 'depth-overlay-line';
+                line.style.top = `${yDom}px`;
+
+                const label = document.createElement('div');
+                label.className = 'depth-overlay-label';
+                label.textContent = depthVal.toFixed(0);
+                line.appendChild(label);
+                overlay.appendChild(line);
+            };
+
+            addExtremeLabel(topPx, topDepth);
+            addExtremeLabel(bottomPx, bottomDepth);
 
             // Mark AI-guessed top/bottom pixels from OCR depth hint, if available
             if (ocrSuggestions && ocrSuggestions.depth) {
