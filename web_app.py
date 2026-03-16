@@ -3534,76 +3534,80 @@ def trace_curve_multiscale(curve_mask, scale_min, scale_max, curve_type="GR", ma
                     valid_xs.append(xs_s[y])
                     valid_confs.append(conf_s[y])
                     cand_scales.append(scale)
-        
+
+        # Confidence-weighted fusion across all scales
+        if valid_xs:
+            total_conf = sum(valid_confs)
+            if total_conf > 0:
+                xs_fused[y] = sum(x * c for x, c in zip(valid_xs, valid_confs)) / total_conf
+                confidence[y] = max(valid_confs)
+            else:
+                xs_fused[y] = float(np.mean(valid_xs))
+                confidence[y] = 0.0
+
+    # Push sampled points to hot-side crest tips for GR peaks
+    if peaks and curve_type.upper() == "GR":
+        xs_fused, confidence = ensure_peak_crests(
+            xs_fused, confidence, prob, peaks, hot_side=hot_side
+        )
+
+    return xs_fused, confidence
+
+
+def trace_curve_greedy_peaks(mask, max_jump=30, min_prob=0.02):
     """Trace curve by greedily following the strongest peak in each row.
-    
+
     This tracer finds the brightest pixel in each row within a search window,
     with NO smoothness penalty - it follows every peak and valley exactly.
-    
+
     Args:
         mask: Probability map (0-255)
         max_jump: Maximum horizontal jump between rows
         min_prob: Minimum probability to consider
-    
+
     Returns:
         Array of x-coordinates, one per row
     """
     if mask is None:
         return None
-    
+
     h, w = mask.shape[:2]
     prob = mask.astype(np.float32) / 255.0
     xs = np.full(h, np.nan, dtype=np.float32)
-    
-    # For each row, just find the brightest pixel - simple and direct
-    # First pass: find brightest pixel in each row
+
     row_max_vals = prob.max(axis=1)
     row_max_xs = prob.argmax(axis=1).astype(np.float32)
-    
-    # Mark rows with sufficient signal
+
     valid_rows = row_max_vals >= min_prob
-    
-    # Start from the row with the strongest signal
+
     if not np.any(valid_rows):
         return xs
-    
+
     start_row = int(np.argmax(row_max_vals))
     xs[start_row] = row_max_xs[start_row]
-    
-    # Trace downward - at each row, find brightest pixel within max_jump of previous
+
     current_x = xs[start_row]
     for y in range(start_row + 1, h):
         row = prob[y]
-        
-        # Search in a window around current position
         x0 = max(0, int(current_x) - max_jump)
         x1 = min(w, int(current_x) + max_jump + 1)
         window = row[x0:x1]
-        
         if window.max() >= min_prob:
-            # Find brightest in window
             best_local = np.argmax(window)
-            best_x = x0 + best_local
-            
-            current_x = float(best_x)
+            current_x = float(x0 + best_local)
             xs[y] = current_x
-    
-    # Trace upward from start
+
     current_x = xs[start_row]
     for y in range(start_row - 1, -1, -1):
         row = prob[y]
-        
         x0 = max(0, int(current_x) - max_jump)
         x1 = min(w, int(current_x) + max_jump + 1)
         window = row[x0:x1]
-        
         if window.max() >= min_prob:
             best_local = np.argmax(window)
-            best_x = x0 + best_local
-            
-            current_x = float(best_x)
+            current_x = float(x0 + best_local)
             xs[y] = current_x
-    
+
     return xs
 
 
