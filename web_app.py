@@ -6729,6 +6729,10 @@ def digitize():
                 hot_side=hot_side,
             )
 
+            # Push trace to hot-side ink edge (tip/crest of each spike)
+            prob_map_bm = mask.astype(np.float32) / 255.0
+            xs = ensure_gr_peak_crests(xs, prob_map_bm, hot_side=hot_side)
+
             # Optional final smoothing for non-GR curves (GR needs to stay jagged)
             if curve_type.upper() != "GR":
                  xs = remove_outliers_and_smooth(xs, window=curve_smooth_window, outlier_threshold=outlier_threshold)
