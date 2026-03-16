@@ -6749,11 +6749,10 @@ def digitize():
                 s = s.fillna(method='ffill', limit=max_gap).fillna(method='bfill', limit=max_gap)
             xs = s.to_numpy(dtype=np.float32)
 
-        # For colored modes, apply specific enhancements (GR peaks, centerline refinement)
+        # For colored modes, apply specific enhancements (peaks, centerline refinement)
         if mode in colored_modes:
-            if curve_type.upper() == "GR":
-                prob_map = mask.astype(np.float32) / 255.0
-                xs = ensure_gr_peak_crests(xs, prob_map, hot_side=hot_side)
+            prob_map = mask.astype(np.float32) / 255.0
+            xs = ensure_gr_peak_crests(xs, prob_map, hot_side=hot_side)
 
             # Final centerline snap for ALL colored modes
             try:
