@@ -6755,8 +6755,9 @@ def digitize():
 
         # For colored modes, apply specific enhancements (peaks, centerline refinement)
         if mode in colored_modes:
-            prob_map = mask.astype(np.float32) / 255.0
-            xs = ensure_gr_peak_crests(xs, prob_map, hot_side=hot_side)
+            if curve_type.upper() == "GR":
+                prob_map = mask.astype(np.float32) / 255.0
+                xs = ensure_gr_peak_crests(xs, prob_map, hot_side=hot_side, min_prob=0.01)
 
             # Final centerline snap for ALL colored modes
             try:
