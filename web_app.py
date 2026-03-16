@@ -4058,7 +4058,7 @@ def _push_crest_hot_side(mask, xs, hot_side, curve_type=None, min_prob=0.01, max
     return xs_out
 
 
-def ensure_gr_peak_crests(xs, prob_map, hot_side=None, min_prob=0.002, y_merge_window=5, max_shift_frac=0.6):
+def ensure_gr_peak_crests(xs, prob_map, hot_side=None, min_prob=0.002, y_merge_window=5, max_shift_frac=0.6, max_dx_pixels=None):
     """For GR colored-mode traces, guarantee at least one crest sample per spike.
 
     This is a conservative helper that, for each vertical cluster of rows, moves
@@ -4085,7 +4085,10 @@ def ensure_gr_peak_crests(xs, prob_map, hot_side=None, min_prob=0.002, y_merge_w
     # Allow large moves, but not across the entire track; cap at a fraction
     # of the track width.
     # TELEPORTATION GUARD: Cap at 30px to prevent shooting off to distant noise
-    max_dx_allowed = min(30, max(1, int(max_shift_frac * w)))
+    if max_dx_pixels is not None:
+        max_dx_allowed = max(1, int(max_dx_pixels))
+    else:
+        max_dx_allowed = min(30, max(1, int(max_shift_frac * w)))
 
     # 1) Build crest candidates per row
     candidates = []  # (y, crest_x, dx)
@@ -6730,8 +6733,10 @@ def digitize():
             )
 
             # Push trace to hot-side ink edge (tip/crest of each spike)
+            # max_dx_pixels=15: grid boundary lines are ~25-30px away, so
+            # a 15px hard cap accepts real tip snaps but rejects grid jumps.
             prob_map_bm = mask.astype(np.float32) / 255.0
-            xs = ensure_gr_peak_crests(xs, prob_map_bm, hot_side=hot_side)
+            xs = ensure_gr_peak_crests(xs, prob_map_bm, hot_side=hot_side, max_dx_pixels=15)
 
             # Optional final smoothing for non-GR curves (GR needs to stay jagged)
             if curve_type.upper() != "GR":
