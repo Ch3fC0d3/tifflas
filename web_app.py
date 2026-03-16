@@ -6729,11 +6729,11 @@ def digitize():
                 hot_side=hot_side,
             )
 
-            # Push trace to hot-side ink edge (tip/crest of each spike)
-            # min_prob=0.05: only walk clearly visible ink, not faint grey pixels
-            # max_shift_frac=0.15: cap move to ~15% of track width (≤30px)
-            prob_map_bm = mask.astype(np.float32) / 255.0
-            xs = ensure_gr_peak_crests(xs, prob_map_bm, hot_side=hot_side, min_prob=0.05, max_shift_frac=0.15)
+            # Push trace to hot-side ink edge for GR-type spikes only
+            # Non-GR curves (density, resistivity) don't have hot-side spike geometry
+            if curve_type.upper() == "GR":
+                prob_map_bm = mask.astype(np.float32) / 255.0
+                xs = ensure_gr_peak_crests(xs, prob_map_bm, hot_side=hot_side, min_prob=0.05, max_shift_frac=0.15)
 
             # Optional final smoothing for non-GR curves (GR needs to stay jagged)
             if curve_type.upper() != "GR":
