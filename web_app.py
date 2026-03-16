@@ -3478,9 +3478,9 @@ def trace_curve_multiscale(curve_mask, scale_min, scale_max, curve_type="GR", ma
                         ref_x = xs_out[ny]
                         break
             
-            # If we have a reference, enforce distance limit (60px)
+            # If we have a reference, enforce distance limit (30px)
             if ref_x is not None:
-                if abs(x_peak - ref_x) > 60:
+                if abs(x_peak - ref_x) > 30:
                     continue
             else:
                 # If no reference nearby (isolated point), unsafe to snap -> skip
@@ -3496,10 +3496,10 @@ def trace_curve_multiscale(curve_mask, scale_min, scale_max, curve_type="GR", ma
                 move = True
             else:
                 if hot_side == "right":
-                    if x_peak > x_curr_int and p_peak >= max(0.05, p_curr * 0.7):
+                    if x_peak > x_curr_int and p_peak >= max(0.1, p_curr * 0.9):
                         move = True
                 elif hot_side == "left":
-                    if x_peak < x_curr_int and p_peak >= max(0.05, p_curr * 0.7):
+                    if x_peak < x_curr_int and p_peak >= max(0.1, p_curr * 0.9):
                         move = True
                 else:
                     if p_peak >= p_curr * 1.05:
@@ -4084,8 +4084,8 @@ def ensure_gr_peak_crests(xs, prob_map, hot_side=None, min_prob=0.002, y_merge_w
 
     # Allow large moves, but not across the entire track; cap at a fraction
     # of the track width.
-    # TELEPORTATION GUARD: Cap at 60px - enough to reach spike tips while avoiding distant noise
-    max_dx_allowed = min(60, max(1, int(max_shift_frac * w)))
+    # TELEPORTATION GUARD: Cap at 30px to prevent shooting off to distant noise
+    max_dx_allowed = min(30, max(1, int(max_shift_frac * w)))
 
     # 1) Build crest candidates per row
     candidates = []  # (y, crest_x, dx)
