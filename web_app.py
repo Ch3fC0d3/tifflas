@@ -3518,7 +3518,7 @@ def trace_curve_multiscale(curve_mask, scale_min, scale_max, curve_type="GR", ma
     confidence = np.zeros(h, dtype=np.float32)
     
     # Peak-aware fusion with curvature refinement
-    peaks = detect_local_peaks(prob, min_prominence=0.005) if curve_type.upper() == "GR" else []
+    peaks = detect_local_peaks(prob, min_prominence=0.005)
     
     for y in range(h):
         valid_indices = []
@@ -3545,8 +3545,8 @@ def trace_curve_multiscale(curve_mask, scale_min, scale_max, curve_type="GR", ma
                 xs_fused[y] = float(np.mean(valid_xs))
                 confidence[y] = 0.0
 
-    # Push sampled points to hot-side crest tips for GR peaks
-    if peaks and curve_type.upper() == "GR":
+    # Push sampled points to hot-side crest tips
+    if peaks:
         xs_fused, confidence = ensure_peak_crests(
             xs_fused, confidence, prob, peaks, hot_side=hot_side
         )
