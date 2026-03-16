@@ -7011,14 +7011,8 @@
             }
             const denomX = Math.max(1, imageWidth - 1);
 
-            let topDom = 0;
-            let heightDom = rect.height;
-            const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
-            if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
-                const scaleY = rect.height / imageHeight;
-                topDom = cfg.top_px * scaleY;
-                heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
-            }
+            const topDom = 0;
+            const heightDom = rect.height;
 
             clearTrackOverlays();
 
