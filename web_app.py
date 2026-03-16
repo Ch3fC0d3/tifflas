@@ -3535,363 +3535,6 @@ def trace_curve_multiscale(curve_mask, scale_min, scale_max, curve_type="GR", ma
                     valid_confs.append(conf_s[y])
                     cand_scales.append(scale)
         
-        if valid_xs:
-            # Fusion strategy
-            if curve_type.upper() == "GR":
-                # WINNER-TAKES-ALL for jagged GR peaks: pick the candidate
-                # that lands on the highest probability in the original map.
-                best_val = -1.0
-                best_x = np.nan
-
-                for x_cand in valid_xs:
-                    x_int = int(round(x_cand))
-                    if 0 <= x_int < w:
-                        val = prob[y, x_int]
-                        if val > best_val:
-                            best_val = val
-                            best_x = x_cand
-
-                if best_val > 0.0:
-                    xs_fused[y] = best_x
-                    confidence[y] = best_val
-                else:
-                    weights = np.array(valid_confs) * np.array(cand_scales)
-                    if weights.sum() > 0:
-                        weights = weights / weights.sum()
-                        xs_fused[y] = float(np.sum(np.array(valid_xs) * weights))
-                        confidence[y] = float(np.sum(np.array(valid_confs) * weights))
-            else:
-                # Original weighted-average fusion for smoother curves
-                weights = np.array(valid_confs) * np.array(cand_scales)
-                if weights.sum() > 0:
-                    weights = weights / weights.sum()
-                    xs_fused[y] = float(np.sum(np.array(valid_xs) * weights))
-                    confidence[y] = float(np.sum(np.array(valid_confs) * weights))
-
-    # Second pass: spike extender for GR logs.
-    # The DP path can cut corners on very sharp spikes. Here we search
-    # a wider horizontal window for a brighter pixel and snap to it.
-    if curve_type.upper() == "GR":
-        # Pre-calculate global vertical grid lines using column projection
-        # Grid lines span the full height, so they appear as strong peaks in column averages.
-        # Wiggly curves have low column averages.
-        col_means = np.mean(prob, axis=0)
-        # Identify columns that are suspicious (likely grid rails)
-        # Threshold: if average intensity is > 10%, it's likely a rail.
-        grid_col_mask = col_means > 0.10
-        # Dilate mask to cover line width
-        if grid_col_mask.any():
-            grid_col_mask = cv2.dilate(grid_col_mask.astype(np.uint8), np.ones(3, np.uint8)).astype(bool)
-
-        # Spike extension: search a horizontal window for a clearly brighter pixel
-        # and snap to it. This is conservative enough to avoid false snaps.
-        # Increased to 25px to help bridge gaps left by aggressive grid removal.
-        search_window = 25
-        for y in range(h):
-            x0 = xs_fused[y]
-            if not np.isfinite(x0):
-                continue
-
-            x_int = int(round(x0))
-            if x_int < 0 or x_int >= w:
-                continue
-
-            current_val = prob[y, x_int]
-            x_start = max(0, x_int - search_window)
-            x_end = min(w, x_int + search_window + 1)
-            row_seg = prob[y, x_start:x_end]
-            if row_seg.size == 0:
-                continue
-
-            local_idx = int(np.argmax(row_seg))
-            local_x = x_start + local_idx
-            local_val = row_seg[local_idx]
-
-            # Only snap if the candidate is clearly better.
-            if local_x != x_int and local_val > 0.1 and local_val >= current_val * snap_threshold:
-                # Grid Guard: Don't snap to a global vertical rail unless it's extremely bright (intersection)
-                if grid_col_mask[local_x]:
-                    if local_val < 0.6: # Require high confidence to snap to a known grid column
-                        continue
-                        
-                xs_fused[y] = float(local_x)
-                confidence[y] = float(local_val)
-
-    # Apply sub-pixel refinement for maximum accuracy
-    xs_refined, subpixel_conf = refine_subpixel_parabola(curve_mask, xs_fused, prob)
-    
-    # Final curvature-based refinement for any remaining missed peaks
-    xs_final, curv_conf = curvature_based_refinement(xs_refined, prob, curve_type)
-    
-    # Update confidence with sub-pixel and curvature-based accuracy
-    confidence = confidence * subpixel_conf * curv_conf
-    
-    # Adaptive smoothing based on local curvature
-    # Skip for GR logs to preserve sharp peaks - they need to be raw to catch single-pixel spikes
-    if curve_type.upper() != "GR":
-        try:
-            from scipy.ndimage import uniform_filter1d
-            valid_mask = np.isfinite(xs_final)
-            if np.sum(valid_mask) > 5:
-                # Calculate local curvature for adaptive smoothing
-                xs_smooth = xs_final.copy()
-                xs_smooth[~valid_mask] = np.interp(np.where(~valid_mask)[0], 
-                                                  np.where(valid_mask)[0], 
-                                                  xs_final[valid_mask])
-                
-                curvature = np.gradient(np.gradient(xs_smooth))
-                curvature_magnitude = np.abs(curvature)
-                
-                # Adaptive smoothing: less smoothing in high curvature regions
-                for y in range(h):
-                    if valid_mask[y]:
-                        # Reduce smoothing near peaks
-                        curv_penalty = min(1.0, curvature_magnitude[y] / np.percentile(curvature_magnitude[valid_mask], 90))
-                        smooth_factor = max(0.1, 1.0 - curv_penalty)
-                        
-                        # Apply minimal smoothing to preserve peaks
-                        if smooth_factor > 0.1:
-                            window = max(3, int(3 + 2 * (1 - smooth_factor)))
-                            if y - window//2 >= 0 and y + window//2 < h:
-                                local_values = xs_final[max(0, y-window//2):min(h, y+window//2+1)]
-                                valid_local = np.isfinite(local_values)
-                                if np.sum(valid_local) > 0:
-                                    xs_final[y] = np.mean(local_values[valid_local])
-        except ImportError:
-            pass
-
-    # Final guarantee: ensure each GR peak cluster has at least one crest sample
-    if curve_type.upper() == "GR" and len(all_peaks) > 0:
-        xs_final, confidence = ensure_peak_crests(xs_final, confidence, prob, all_peaks, hot_side=hot_side)
-    
-    return xs_final, confidence
-
-
-def refine_subpixel_parabola(mask, xs, prob_map=None):
-    """
-    Refine positions using parabolic sub-pixel interpolation.
-    Given peak pixel x, fits parabola to (x-1), x, (x+1) to find true max.
-    
-    Formula: offset = 0.5 * (left - right) / (left - 2*center + right)
-    
-    Returns:
-        (xs_refined, subpixel_conf): refined positions and per-row confidence
-    """
-    ones = np.ones(len(xs), dtype=np.float32)
-    if mask is None or xs is None:
-        return xs, ones
-
-    h, w = mask.shape
-    if prob_map is not None and prob_map.shape == mask.shape:
-        prob = prob_map.astype(np.float32)
-        if prob.max() > 1.0:
-            prob = prob / 255.0
-    else:
-        prob = mask.astype(np.float32) / 255.0
-
-    xs_refined = xs.copy()
-    subpixel_conf = np.ones(h, dtype=np.float32)
-
-    for y in range(h):
-        x = xs_refined[y]
-        if not np.isfinite(x):
-            subpixel_conf[y] = 0.0
-            continue
-
-        ix = int(round(x))
-        if ix < 1 or ix >= w - 1:
-            continue
-
-        v_left = prob[y, ix - 1]
-        v_curr = prob[y, ix]
-        v_right = prob[y, ix + 1]
-
-        if v_curr >= v_left and v_curr >= v_right:
-            denominator = v_left - 2 * v_curr + v_right
-            if abs(denominator) > 1e-4:
-                offset = 0.5 * (v_left - v_right) / denominator
-                offset = max(-0.5, min(0.5, offset))
-                xs_refined[y] = float(ix) + offset
-
-    return xs_refined, subpixel_conf
-
-
-def refine_trace_gradient_ascent(mask, xs, iterations=5):
-    """
-    Iteratively move each point to the brightest immediate neighbor.
-    This helps snap the trace to the exact peak of the ink profile.
-    
-    Args:
-        mask: Probability map (0-255)
-        xs: Trace x-coordinates
-        iterations: Number of hill-climbing steps
-        
-    Returns:
-        Refined x-coordinates
-    """
-    if mask is None or xs is None:
-        return xs
-        
-    h, w = mask.shape
-    prob = mask.astype(np.float32) / 255.0
-    xs_refined = xs.copy()
-    
-    for _ in range(iterations):
-        moved = False
-        for y in range(h):
-            x = xs_refined[y]
-            if not np.isfinite(x):
-                continue
-                
-            ix = int(round(x))
-            if ix < 1 or ix >= w - 1:
-                continue
-                
-            # Check immediate neighbors (3-pixel window)
-            p_curr = prob[y, ix]
-            p_left = prob[y, ix - 1]
-            p_right = prob[y, ix + 1]
-            
-            # Move towards brighter neighbor
-            if p_left > p_curr and p_left >= p_right:
-                xs_refined[y] = float(ix - 1)
-                moved = True
-            elif p_right > p_curr and p_right > p_left:
-                xs_refined[y] = float(ix + 1)
-                moved = True
-                
-        if not moved:
-            break
-            
-    return xs_refined
-
-
-def refine_trace_with_local_maxima(mask, xs, max_shift=6, dominance_ratio=1.1, min_prob=0.2):
-    """Nudge the DP path toward obvious local maxima in the prob mask.
-
-    For each row, look in a small window around the current DP x and, when
-    there is a clearly stronger nearby maximum, move the x coordinate toward
-    the probability-weighted centroid of that local peak. This keeps the
-    path glued to the same physical curve while following its wiggles more
-    tightly.
-    """
-    if mask is None or xs is None:
-        return xs
-    if not hasattr(xs, "size") or xs.size == 0:
-        return xs
-
-    h, w = mask.shape[:2]
-    if h < 1 or w < 1:
-        return xs
-
-    prob = mask.astype(np.float32) / 255.0
-    xs_ref = xs.copy()
-
-    n_rows = min(h, xs_ref.size)
-    for y in range(n_rows):
-        x = xs_ref[y]
-        if not np.isfinite(x):
-            continue
-
-        x_c = int(round(float(x)))
-        if x_c < 0 or x_c >= w:
-            continue
-
-        row = prob[y]
-        x0 = max(0, x_c - max_shift)
-        x1 = min(w, x_c + max_shift + 1)
-        window = row[x0:x1]
-        if window.size == 0:
-            continue
-
-        max_p = float(window.max())
-        if max_p < min_prob:
-            continue
-
-        # Compare the best pixel in the window to the current DP location.
-        local_peak_idx = int(np.argmax(window))
-        x_peak = x0 + local_peak_idx
-        p_peak = float(row[x_peak])
-        p_dp = float(row[x_c])
-        if p_dp <= 0:
-            p_dp = 1e-6
-
-        if p_peak >= dominance_ratio * p_dp:
-            # Use a weighted centroid within the local window, restricted to
-            # the top part of the peak, so the path follows the center of the
-            # curve stroke instead of a single edge pixel.
-            xs_local = np.arange(x0, x1, dtype=np.float32)
-            weights = window.astype(np.float32)
-            peak_mask = weights >= max_p * 0.6
-
-            try:
-                # If we have no clearly strong pixels, fall back to any
-                # non-zero weights.
-                if not np.any(peak_mask):
-                    peak_mask = weights > 0.0
-                idx_strong = np.flatnonzero(peak_mask)
-                if idx_strong.size > 0:
-                    # Group consecutive strong pixels into contiguous
-                    # segments so we can snap to the center of a physical
-                    # stroke rather than an arbitrary mix of nearby blobs.
-                    start = idx_strong[0]
-                    prev = idx_strong[0]
-                    segments = []
-                    for idx in idx_strong[1:]:
-                        if idx == prev + 1:
-                            prev = idx
-                        else:
-                            segments.append((start, prev))
-                            start = idx
-                            prev = idx
-                    segments.append((start, prev))
-
-                    # Prefer the segment that actually contains the local
-                    # peak; otherwise choose the closest segment by center.
-                    seg_best = None
-                    for s, e in segments:
-                        if s <= local_peak_idx <= e:
-                            seg_best = (s, e)
-                            break
-                    if seg_best is None and segments:
-                        seg_best = min(
-                            segments,
-                            key=lambda se: abs((se[0] + se[1]) * 0.5 - local_peak_idx),
-                        )
-
-                    if seg_best is not None:
-                        s, e = seg_best
-                        seg_slice = slice(s, e + 1)
-                        seg_weights = weights[seg_slice]
-                        seg_xs = xs_local[seg_slice]
-                        wsum = float(seg_weights.sum())
-                        if wsum > 0.0:
-                            x_centroid = float((seg_xs * seg_weights).sum() / wsum)
-                        else:
-                            x_centroid = float(seg_xs.mean())
-                        xs_ref[y] = x_centroid
-                        continue
-
-            except Exception:
-                # If anything about the segment-based logic misbehaves for a
-                # particular row, quietly fall back to the simpler
-                # peak-centered weighted centroid used previously.
-                pass
-
-            # Fallback: original behavior - centroid of the strong part of
-            # the window around the dominant peak.
-            if not np.any(peak_mask):
-                peak_mask = weights > 0.0
-            weights_centroid = weights * peak_mask.astype(np.float32)
-            wsum = float(weights_centroid.sum())
-            if wsum > 0.0:
-                x_centroid = float((xs_local * weights_centroid).sum() / wsum)
-                xs_ref[y] = x_centroid
-
-    return xs_ref
-
-
-def trace_curve_greedy_peaks(mask, max_jump=30, min_prob=0.05):
     """Trace curve by greedily following the strongest peak in each row.
     
     This tracer finds the brightest pixel in each row within a search window,
@@ -3942,15 +3585,6 @@ def trace_curve_greedy_peaks(mask, max_jump=30, min_prob=0.05):
             best_local = np.argmax(window)
             best_x = x0 + best_local
             
-            # But also check if there's a much stronger peak outside the window
-            global_max_x = int(row_max_xs[y])
-            global_max_val = row[global_max_x]
-            local_max_val = window[best_local]
-            
-            # If global peak is significantly stronger (2x), jump to it
-            if global_max_val > local_max_val * 2.0:
-                best_x = global_max_x
-            
             current_x = float(best_x)
             xs[y] = current_x
     
@@ -3966,13 +3600,6 @@ def trace_curve_greedy_peaks(mask, max_jump=30, min_prob=0.05):
         if window.max() >= min_prob:
             best_local = np.argmax(window)
             best_x = x0 + best_local
-            
-            global_max_x = int(row_max_xs[y])
-            global_max_val = row[global_max_x]
-            local_max_val = window[best_local]
-            
-            if global_max_val > local_max_val * 2.0:
-                best_x = global_max_x
             
             current_x = float(best_x)
             xs[y] = current_x
@@ -4010,8 +3637,9 @@ def refine_to_smart_edges(mask, xs, min_prob=0.005):
             continue
             
         # 2. Find connected ink chunk
-        w_start = max(0, ix - 200) # Increased search for SR
-        w_end = min(w, ix + 201)
+        # TELEPORTATION GUARD: Reduced from 200 to 30 to prevent snapping to distant noise
+        w_start = max(0, ix - 30)
+        w_end = min(w, ix + 31)
         row_slice = prob[y, w_start:w_end]
         
         # Simple threshold
@@ -4363,7 +3991,7 @@ def ensure_peaks_have_points(
     return xs_ref
 
 
-def _push_crest_hot_side(mask, xs, hot_side, curve_type=None, min_prob=0.01, max_shift=200):
+def _push_crest_hot_side(mask, xs, hot_side, curve_type=None, min_prob=0.01, max_shift=30):
     # Only apply this aggressive crest push for GR-type curves
     if curve_type is not None and str(curve_type).upper() != "GR":
         return xs
@@ -4452,7 +4080,8 @@ def ensure_gr_peak_crests(xs, prob_map, hot_side=None, min_prob=0.002, y_merge_w
 
     # Allow large moves, but not across the entire track; cap at a fraction
     # of the track width.
-    max_dx_allowed = max(1, int(max_shift_frac * w))
+    # TELEPORTATION GUARD: Cap at 30px to prevent shooting off to distant noise
+    max_dx_allowed = min(30, max(1, int(max_shift_frac * w)))
 
     # 1) Build crest candidates per row
     candidates = []  # (y, crest_x, dx)
