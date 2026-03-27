@@ -3,8 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LAS Viewer — TIFF→LAS Digitizer</title>
+    <title>LAS Viewer - TifLAS</title>
     <!-- Use ES modules via esm.sh for reliable loading of CommonJS packages -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/wellioviz@2.1.2/dist/index.js"></script>
+
+    {% if log_data %}
+    <script>
+        // Preload LAS data from database if log_id was provided
+        window.PRELOADED_LAS_CONTENT = {{ log_data.las_content | tojson | safe }};
+    </script>
+    {% endif %}
+
     <script type="module">
         import wellio from 'https://esm.sh/wellio@0.1.16';
         import wellioviz from 'https://esm.sh/wellioviz@0.0.34?deps=d3@7.9.0';
@@ -27,20 +37,20 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #111827 0%, #0f172a 100%);
             min-height: 100vh;
             padding: 20px;
         }
         .container {
             max-width: 1600px;
             margin: 0 auto;
-            background: white;
+            background: #1e293b;
             border-radius: 12px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
             overflow: hidden;
         }
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #111827 0%, #0f172a 100%);
             color: white;
             padding: 24px 30px;
             display: flex;
@@ -64,7 +74,7 @@
         .back-btn:hover { background: rgba(255,255,255,0.35); }
 
         .toolbar {
-            background: #f8f9fa;
+            background: #334155;
             border-bottom: 1px solid #e9ecef;
             padding: 14px 24px;
             display: flex;
@@ -76,7 +86,7 @@
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #111827 0%, #0f172a 100%);
             color: white;
             padding: 9px 18px;
             border-radius: 6px;
@@ -90,6 +100,9 @@
 
         .toolbar-group {
             display: flex;
+            background: #334155;
+            padding: 8px 16px;
+            border-radius: 8px;
             align-items: center;
             gap: 10px;
         }
@@ -131,7 +144,7 @@
         }
         #imagePane {
             border-right: 1px solid #e9ecef;
-            background: #f8f9fa;
+            background: #334155;
         }
         #imageContent {
             min-height: 100%;
@@ -149,7 +162,7 @@
             gap: 8px;
         }
         .zoom-btn {
-            background: white;
+            background: #1e293b;
             border: 1px solid #ced4da;
             color: #495057;
             padding: 7px 14px;
@@ -159,7 +172,7 @@
             font-weight: 600;
             transition: background 0.15s;
         }
-        .zoom-btn:hover:not(:disabled) { background: #e9ecef; }
+        .zoom-btn:hover:not(:disabled) { background: #1e293b; }
         .zoom-btn:disabled { opacity: 0.45; cursor: not-allowed; }
         .zoom-label {
             min-width: 50px;
@@ -261,8 +274,10 @@
             .curve-toggles { margin-left: 0; }
         }
     </style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
-<body>
+<body class="bg-slate-950 text-slate-100 font-sans">
 
 <div class="container">
     <div class="header">
@@ -289,6 +304,13 @@
             </label>
             <input type="file" id="imageInput" accept="image/*">
         </div>
+
+        {% if log_data %}
+        <div class="toolbar-group">
+            <span class="zoom-label" style="margin-right: 10px;">Viewing: <strong>{{ log_data.name }}</strong></span>
+            <a href="/api/logs/{{ log_data.id }}/download" class="zoom-btn" style="text-decoration: none; padding: 6px 12px; font-size: 0.9em; background: #1e293b;">⬇ Download</a>
+        </div>
+        {% endif %}
 
         <div class="toolbar-divider"></div>
 
@@ -570,7 +592,7 @@ function depthToImgScroll(depth, containerH, state) {
     const pxRange = state.imgBotPx - state.imgTopPx;
     const depthRange = state.imgBotD - state.imgTopD;
     
-    if (Math.abs(depthRange) < 0.001) return 0;
+    if (Math.abs(depthRange) < 0.1) return 0;
     
     const y_original = state.imgTopPx + (depth - state.imgTopD) * (pxRange / depthRange);
     const y_screen = y_original * state.scale;
