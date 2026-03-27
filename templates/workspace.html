@@ -4903,6 +4903,7 @@
                 val = Math.max(1, Math.min(6, val));
                 numCurvesInputEl.value = val;
                 generateCurveInputs();
+                refreshTrackOverlaysFromCurves();
             };
             numCurvesInputEl.addEventListener('change', clampAndRegenerateCurves);
             numCurvesInputEl.addEventListener('input', clampAndRegenerateCurves);
