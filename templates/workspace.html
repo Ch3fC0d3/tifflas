@@ -1415,6 +1415,16 @@
         let lastMouseImgX = null;
         let lastMouseImgY = null;
 
+        function sanitizeTrackPairs(trackPairs) {
+            if (!Array.isArray(trackPairs)) return [];
+            return trackPairs
+                .map((t) => {
+                    if (!Array.isArray(t) || t.length < 2) return null;
+                    return [Number(t[0]), Number(t[1])];
+                })
+                .filter((t) => t && Number.isFinite(t[0]) && Number.isFinite(t[1]) && t[1] > t[0]);
+        }
+
         function normalizeCurveKey(curveId) {
             const key = (curveId || '').toString().trim();
             return key ? key.toUpperCase() : '';
@@ -2292,7 +2302,7 @@
             primaryRegion = null;
 
             if (Array.isArray(allTracks)) {
-                detectedTracks = allTracks.slice();
+                detectedTracks = sanitizeTrackPairs(allTracks);
             }
 
             const topPxInput = document.getElementById('topPx');
@@ -5642,7 +5652,7 @@
                         if (!Number.isFinite(cx)) continue;
                         if (cx >= left && cx <= right) selected.push(t);
                     }
-                    detectedTracks = selected;
+                    detectedTracks = sanitizeTrackPairs(selected);
                 }
 
                 panelSelectMode = false;
@@ -5764,8 +5774,8 @@
                     uploadedImage = data.image;
                     imageWidth = data.width;
                     imageHeight = data.height;
-                    allTracks = data.all_tracks || data.tracks || [];
-                    detectedTracks = data.tracks || [];
+                    allTracks = sanitizeTrackPairs(data.all_tracks || data.tracks || []);
+                    detectedTracks = sanitizeTrackPairs(data.tracks || []);
                     // User requested to NOT auto-select the panel on upload ("confusing blue bar").
                     // We leave primaryRegion null so they can select it manually if desired.
                     primaryRegion = null; 
@@ -6313,9 +6323,8 @@
 
                 // Update detectedTracks so generateCurveInputs uses these windows.
                 // Filter out degenerate entries where the AI returned left >= right.
-                detectedTracks = curves.slice(0, 6)
-                    .map(c => [Math.round(c.left_px), Math.round(c.right_px)])
-                    .filter(t => t[1] > t[0]);
+                detectedTracks = sanitizeTrackPairs(curves.slice(0, 6)
+                    .map(c => [Math.round(c.left_px), Math.round(c.right_px)]));
 
                 const numCurvesInput = document.getElementById('numCurves');
                 numCurvesInput.value = Math.min(6, curves.length);
@@ -6954,9 +6963,16 @@
             const displayNames = ['GR', 'RHOB', 'NPHI', 'DT', 'CALI', 'SP', 'RES', 'PERM'];
             const displayUnits = ['API', 'g/cc', 'v/v', 'us/ft', 'in', 'mV', 'ohmm', 'mD'];
 
+            const hasValidRange = (leftPx, rightPx) => Number.isFinite(leftPx) && Number.isFinite(rightPx) && rightPx > leftPx;
+
             for (let i = 0; i < numCurves; i++) {
-                const track = (tracks && tracks[i]) || (detectedTracks && detectedTracks[i]) || null;
-                const hint = (ocrSuggestions && ocrSuggestions.curves && ocrSuggestions.curves[i]) || null;
+                const rawTrack = (tracks && tracks[i]) || (detectedTracks && detectedTracks[i]) || null;
+                const track = (Array.isArray(rawTrack) && hasValidRange(Number(rawTrack[0]), Number(rawTrack[1]))) ? rawTrack : null;
+
+                const rawHint = (ocrSuggestions && ocrSuggestions.curves && ocrSuggestions.curves[i]) || null;
+                const hintLeft = rawHint ? Number(rawHint.left_px) : NaN;
+                const hintRight = rawHint ? Number(rawHint.right_px) : NaN;
+                const hint = hasValidRange(hintLeft, hintRight) ? rawHint : null;
                 const headerTrack = Array.isArray(headerTracks) && headerTracks[i] ? headerTracks[i] : null;
 
                 // Base left/right pixels from panel/AI tracks or a simple fallback
