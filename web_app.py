@@ -27,6 +27,12 @@ import random
 import re
 import shutil
 import string
+import sqlite3
+from app import auth_billing
+import app.config as config
+from werkzeug.security import generate_password_hash, check_password_hash
+import stripe
+from datetime import timedelta, timezone
 import tempfile
 import textwrap
 import time
@@ -160,22 +166,134 @@ APP_BUILD_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024  # 2GB max request size
-app.secret_key = os.environ.get("SECRET_KEY", "tiflas-dev-secret-key-change-in-prod")
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.secret_key = config.SECRET_KEY
+
+REMEMBER_COOKIE_NAME = 'remember_token'
+REMEMBER_COOKIE_DAYS = 30
+
+
+def _remember_serializer():
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(config.SECRET_KEY, salt='remember-me')
+
+
+def _create_remember_token(payload: dict) -> str:
+    return _remember_serializer().dumps(payload)
+
+
+def _decode_remember_token(raw: str) -> Optional[dict]:
+    from itsdangerous import BadSignature, SignatureExpired
+    try:
+        return _remember_serializer().loads(raw, max_age=REMEMBER_COOKIE_DAYS * 86400)
+    except (BadSignature, SignatureExpired, Exception):
+        return None
+
+
+@app.before_request
+def restore_session_from_token():
+    """If no active session, check for a remember-me token cookie and restore the session."""
+    if session.get('user_id') or session.get('admin_override'):
+        return
+    raw_token = request.cookies.get(REMEMBER_COOKIE_NAME)
+    if not raw_token:
+        return
+    payload = _decode_remember_token(raw_token)
+    if not payload:
+        return
+    if payload.get('admin'):
+        session['admin_override'] = True
+        session.permanent = True
+    elif payload.get('user_id'):
+        user = auth_billing.get_user_by_id(config.AUTH_DB_PATH, int(payload['user_id']))
+        if user and not user.get('is_banned'):
+            session['user_id'] = user['id']
+            session['is_admin'] = user.get('is_admin', 0)
+            session.permanent = True
+
+auth_billing.init_db(config.AUTH_DB_PATH)
+stripe.api_key = config.STRIPE_SECRET_KEY
+
+PLAN_TO_PRICE = {
+    'monthly': config.STRIPE_PRICE_MONTHLY,
+    'annual': config.STRIPE_PRICE_ANNUAL,
+}
+PRICE_TO_PLAN = {v: k for k, v in PLAN_TO_PRICE.items() if v}
 
 # ----------------------------
 # Auth Decorator
 # ----------------------------
-from functools import wraps
+def _is_stripe_configured() -> bool:
+    return bool(config.STRIPE_SECRET_KEY and config.STRIPE_PRICE_MONTHLY and config.STRIPE_PRICE_ANNUAL)
 
+
+def _unix_to_iso(ts: Optional[int]) -> Optional[str]:
+    if not ts:
+        return None
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
+def _current_user(require_access: bool = True):
+    if session.get('admin_override'):
+        return {
+            'id': 0,
+            'email': 'admin@tiflas.com',
+            'full_name': 'Admin User',
+            'company_name': 'TifLAS Admin',
+            'subscription_status': 'active',
+            'plan_code': 'annual'
+        }
+
+    user_id = session.get('user_id')
+    
+    # Check for impersonation
+    if session.get('impersonate_user_id') and session.get('is_admin'):
+        user_id = session.get('impersonate_user_id')
+        
+    if not user_id:
+        return None
+    user = auth_billing.get_user_by_id(config.AUTH_DB_PATH, int(user_id))
+    
+    # If standard auth, check banned status
+    if user and user.get('is_banned') and not session.get('is_admin'):
+        session.clear()
+        return None
+    if not user:
+        session.pop('user_id', None)
+        return None
+    if require_access and _is_stripe_configured() and not auth_billing.subscription_access_allowed(user):
+        return None
+    return user
+
+
+from functools import wraps
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user' not in session:
+        user = _current_user(require_access=True)
+        if not user:
+            if session.get('user_id'):
+                return redirect(url_for('account'))
             return redirect(url_for('login', next=request.url))
         return f(*args, **kwargs)
     return decorated_function
 
+@app.errorhandler(500)
+def _handle_internal_server_error(exc):
+    import traceback
+    tb = traceback.format_exc()
+    original = getattr(exc, 'original_exception', None)
+    err_msg = str(original) if original else str(exc)
+    
+    print(f"500 Error: {err_msg}")
+    print(tb)
 
+    return jsonify({
+        'success': False,
+        'error': f'Internal server error: {err_msg}',
+        'traceback': tb.splitlines()[-5:] if tb else []
+    }), 500
 
 @app.errorhandler(500)
 def _handle_internal_server_error(exc):
@@ -6204,40 +6322,508 @@ def select_primary_track_region(tracks, image_width):
 # ----------------------------
 @app.route('/')
 def index():
-    # If already logged in, go to dashboard
-    if 'user' in session:
+    if _current_user(require_access=False):
         return redirect(url_for('dashboard'))
-    return render_template('index.html', app_version=APP_VERSION, build_time=APP_BUILD_TIME)
-
-
+    return render_template('index.html',
+                          version=APP_VERSION,
+                          build_time=APP_BUILD_TIME,
+                          vision_available=VISION_API_AVAILABLE)
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    """Handle user login against persisted user accounts."""
+    error = None
+    next_url = request.args.get('next')
     if request.method == 'POST':
-        email = request.form.get('email')
+        next_url = request.form.get('next') or next_url
+        email = request.form.get('email', '').strip().lower()
         password = request.form.get('password')
-        
-        # Simple hardcoded auth as requested
-        if email == 'admin@tiflas.com' and password == 'password':
-            session['user'] = email
-            # Handle "next" redirect if present
-            next_url = request.args.get('next')
-            return redirect(next_url or url_for('dashboard'))
-        else:
-            return render_template('login.html', error='Invalid email or password')
-            
-    return render_template('login.html')
+        remember = 'remember-me' in request.form
 
+        # Admin backdoor for testing without Stripe
+        if email == 'admin@tiflas.com' and password == 'password':
+            session.clear()  # prevent session fixation
+            session['admin_override'] = True
+            session.permanent = remember
+            resp = redirect(next_url or url_for('dashboard'))
+            if remember:
+                resp.set_cookie(
+                    REMEMBER_COOKIE_NAME, _create_remember_token({'admin': True}),
+                    max_age=REMEMBER_COOKIE_DAYS * 24 * 3600,
+                    httponly=True, samesite='Lax',
+                )
+            return resp
+
+        user = auth_billing.get_user_by_email(config.AUTH_DB_PATH, email)
+        if not user or not check_password_hash(user['password_hash'], password or ''):
+            error = 'Invalid email or password'
+        else:
+            session.clear()  # prevent session fixation
+            session['user_id'] = user['id']
+            session['is_admin'] = user.get('is_admin', 0)
+            session.permanent = remember
+
+            if auth_billing.subscription_access_allowed(user):
+                dest = next_url or url_for('dashboard')
+            else:
+                flash('Start your trial or choose a plan to access the app.', 'info')
+                dest = url_for('account')
+
+            resp = redirect(dest)
+            if remember:
+                resp.set_cookie(
+                    REMEMBER_COOKIE_NAME, _create_remember_token({'user_id': user['id']}),
+                    max_age=REMEMBER_COOKIE_DAYS * 24 * 3600,
+                    httponly=True, samesite='Lax',
+                )
+            return resp
+            
+    return render_template('login.html', error=error, next_url=next_url)
 
 @app.route('/logout')
 def logout():
-    session.pop('user', None)
-    return redirect(url_for('index'))
+    """Handle user logout"""
+    raw_token = request.cookies.get(REMEMBER_COOKIE_NAME)
+    if raw_token:
+        auth_billing.delete_remember_token(config.AUTH_DB_PATH, raw_token)
+    session.clear()
+    resp = redirect(url_for('index'))
+    resp.delete_cookie(REMEMBER_COOKIE_NAME)
+    return resp
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    """Create a real user account (password-hashed, persisted in SQLite)."""
+    error = None
+    if request.method == 'POST':
+        full_name = request.form.get('full_name', '').strip()
+        company_name = request.form.get('company_name', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+
+        if not full_name or not company_name or not email or len(password) < 8:
+            error = 'Please complete all fields. Password must be at least 8 characters.'
+        elif auth_billing.get_user_by_email(config.AUTH_DB_PATH, email):
+            error = 'An account with that email already exists.'
+        else:
+            user_id = auth_billing.create_user(
+                config.AUTH_DB_PATH,
+                email=email,
+                password_hash=generate_password_hash(password),
+                full_name=full_name,
+                company_name=company_name,
+            )
+            session['user_id'] = user_id
+            if _is_stripe_configured():
+                return redirect(url_for('create_checkout_session', plan='monthly', mode='trial'))
+            flash('Account created. Add Stripe keys on Railway to enable paid signup and trial checkout.', 'warning')
+            return redirect(url_for('account'))
+
+    return render_template('signup.html', error=error)
+
+
+@app.route('/auth-debug')
+def auth_debug():
+    """Diagnostic route — shows cookie and session state for remember-me debugging."""
+    raw_token = request.cookies.get(REMEMBER_COOKIE_NAME)
+    decoded = _decode_remember_token(raw_token) if raw_token else None
+    info = {
+        'session_keys': list(session.keys()),
+        'session_permanent': session.permanent,
+        'remember_cookie_present': bool(raw_token),
+        'remember_cookie_preview': (raw_token[:20] + '...') if raw_token else None,
+        'token_decode_ok': decoded is not None,
+        'token_payload': decoded,
+        'all_cookie_names': list(request.cookies.keys()),
+        'secret_key_prefix': config.SECRET_KEY[:8] + '...' if config.SECRET_KEY else 'NOT SET',
+    }
+    return jsonify(info)
+
+
+
+@app.route('/account')
+def account():
+    user = _current_user(require_access=False)
+    if not user:
+        return redirect(url_for('login'))
+
+    trial_countdown = auth_billing.compute_trial_countdown(user)
+    trial_eligibility = auth_billing.trial_eligibility(config.AUTH_DB_PATH, user)
+    invoices = []
+    payment_method = None
+    subscription_cancel_at_period_end = False
+
+    if _is_stripe_configured() and user.get('stripe_customer_id'):
+        try:
+            invoices_resp = stripe.Invoice.list(customer=user['stripe_customer_id'], limit=12)
+            invoices = auth_billing.serialize_invoices(list(invoices_resp.data))
+
+            customer = stripe.Customer.retrieve(
+                user['stripe_customer_id'],
+                expand=['invoice_settings.default_payment_method'],
+            )
+            default_pm = customer.get('invoice_settings', {}).get('default_payment_method')
+            if default_pm:
+                payment_method = {
+                    'brand': default_pm.get('card', {}).get('brand', '').upper(),
+                    'last4': default_pm.get('card', {}).get('last4', ''),
+                    'exp_month': default_pm.get('card', {}).get('exp_month', ''),
+                    'exp_year': default_pm.get('card', {}).get('exp_year', ''),
+                }
+
+            if user.get('stripe_subscription_id'):
+                sub = stripe.Subscription.retrieve(user['stripe_subscription_id'])
+                subscription_cancel_at_period_end = bool(sub.get('cancel_at_period_end'))
+        except Exception as exc:
+            flash(f'Billing data temporarily unavailable: {exc}', 'warning')
+
+    return render_template(
+        'account.html',
+        user=user,
+        trial_countdown=trial_countdown,
+        trial_eligibility=trial_eligibility,
+        current_plan_label=auth_billing.plan_label(user.get('plan_code')),
+        can_manage_billing=bool(user.get('stripe_customer_id')),
+        billing_ready=_is_stripe_configured(),
+        invoices=invoices,
+        payment_method=payment_method,
+        cancel_at_period_end=subscription_cancel_at_period_end,
+    )
+
+
+@app.route('/account/update', methods=['POST'])
+def update_account():
+    user = _current_user(require_access=False)
+    if not user:
+        return redirect(url_for('login'))
+        
+    full_name = request.form.get('full_name', '').strip()
+    company_name = request.form.get('company_name', '').strip()
+    
+    if not full_name or not company_name:
+        flash('Full Name and Company Name are required.', 'error')
+        return redirect(url_for('account'))
+        
+    try:
+        # We can re-use update_user_fields from auth_billing
+        auth_billing.update_user_fields(
+            config.AUTH_DB_PATH, 
+            user['id'],
+            full_name=full_name,
+            company_name=company_name,
+            company_name_normalized=" ".join(company_name.lower().split())
+        )
+        flash('Profile updated successfully.', 'success')
+    except Exception as e:
+        flash('Failed to update profile.', 'error')
+        
+    return redirect(url_for('account'))
+
+
+@app.route('/admin')
+@login_required
+def admin():
+    """Admin panel."""
+    user = _current_user(require_access=True)
+    if not user.get('is_admin') and not session.get('is_admin'):
+        flash('Access denied.', 'error')
+        return redirect(url_for('dashboard'))
+        
+    users = auth_billing.get_all_users_for_admin(config.AUTH_DB_PATH)
+    logs = auth_billing.get_all_logs_for_admin(config.AUTH_DB_PATH)
+    stats = auth_billing.get_admin_stats(config.AUTH_DB_PATH)
+    settings = auth_billing.get_admin_settings(config.AUTH_DB_PATH)
+    
+    # Determine which user we are impersonating, if any
+    impersonating_id = session.get('impersonate_user_id')
+    
+    return render_template('admin.html', user=user, users=users, logs=logs, stats=stats, settings=settings, impersonating_id=impersonating_id)
+
+
+@app.route('/admin/action', methods=['POST'])
+@login_required
+def admin_action():
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        
+    data = request.json or {}
+    action = data.get('action')
+    
+    if action == 'impersonate':
+        target_id = data.get('user_id')
+        if target_id:
+            session['impersonate_user_id'] = int(target_id)
+            return jsonify({'success': True, 'message': 'Impersonation started'})
+        else:
+            return jsonify({'success': False, 'error': 'Missing user_id'})
+            
+    elif action == 'stop_impersonate':
+        session.pop('impersonate_user_id', None)
+        return jsonify({'success': True, 'message': 'Impersonation stopped'})
+        
+    elif action == 'update_setting':
+        key = data.get('key')
+        val = data.get('value', '')
+        if key:
+            auth_billing.update_admin_setting(config.AUTH_DB_PATH, key, val)
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Missing key'})
+        
+    elif action in ['ban', 'unban', 'extend_trial', 'make_lifetime', 'delete']:
+        target_id = data.get('user_id')
+        if target_id:
+            try:
+                auth_billing.admin_update_user_action(config.AUTH_DB_PATH, int(target_id), action)
+                return jsonify({'success': True})
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)})
+                
+    return jsonify({'success': False, 'error': 'Invalid action'})
+
+
+@app.route('/billing/create-checkout-session', methods=['GET', 'POST'])
+def create_checkout_session():
+    user = _current_user(require_access=False)
+    if not user:
+        return redirect(url_for('login'))
+
+    if not _is_stripe_configured():
+        flash('Stripe is not configured yet. Add Stripe environment variables in Railway.', 'error')
+        return redirect(url_for('account'))
+
+    plan = (request.values.get('plan') or '').strip().lower()
+    mode = (request.values.get('mode') or 'upgrade').strip().lower()
+    if plan not in ('monthly', 'annual'):
+        flash('Invalid plan selected.', 'error')
+        return redirect(url_for('account'))
+
+    price_id = PLAN_TO_PRICE.get(plan)
+    if not price_id:
+        flash('Missing Stripe price configuration for that plan.', 'error')
+        return redirect(url_for('account'))
+
+    if mode == 'trial':
+        eligibility = auth_billing.trial_eligibility(config.AUTH_DB_PATH, user)
+        if not eligibility.get('eligible'):
+            flash(eligibility.get('reason') or 'Trial is not available for this account.', 'error')
+            return redirect(url_for('account'))
+
+    customer_id = user.get('stripe_customer_id')
+    if not customer_id:
+        customer = stripe.Customer.create(
+            email=user['email'],
+            name=user['full_name'],
+            metadata={
+                'user_id': str(user['id']),
+                'company_name': user['company_name'],
+            },
+        )
+        customer_id = customer['id']
+        auth_billing.update_user_fields(config.AUTH_DB_PATH, user['id'], stripe_customer_id=customer_id)
+
+    subscription_data = {
+        'metadata': {
+            'user_id': str(user['id']),
+            'plan_code': plan,
+            'mode': mode,
+        }
+    }
+    if mode == 'trial':
+        subscription_data['trial_period_days'] = auth_billing.TRIAL_DAYS
+
+    checkout = stripe.checkout.Session.create(
+        mode='subscription',
+        customer=customer_id,
+        line_items=[{'price': price_id, 'quantity': 1}],
+        payment_method_collection='always',
+        metadata={
+            'user_id': str(user['id']),
+            'plan_code': plan,
+            'mode': mode,
+        },
+        success_url=f"{config.APP_BASE_URL}/account?checkout=success",
+        cancel_url=f"{config.APP_BASE_URL}/account?checkout=cancel",
+        subscription_data=subscription_data,
+    )
+    return redirect(checkout.url, code=303)
+
+
+
+@app.route('/billing/portal', methods=['POST'])
+def billing_portal():
+    user = _current_user(require_access=False)
+    if not user:
+        return redirect(url_for('login'))
+    if not _is_stripe_configured() or not user.get('stripe_customer_id'):
+        flash('Billing portal is unavailable until Stripe is configured and a customer exists.', 'error')
+        return redirect(url_for('account'))
+
+    portal = stripe.billing_portal.Session.create(
+        customer=user['stripe_customer_id'],
+        return_url=f"{config.APP_BASE_URL}/account",
+    )
+    return redirect(portal.url, code=303)
+
+
+
+@app.route('/billing/cancel-plan', methods=['POST'])
+def cancel_plan():
+    user = _current_user(require_access=False)
+    if not user:
+        return redirect(url_for('login'))
+    subscription_id = user.get('stripe_subscription_id')
+    if not subscription_id:
+        flash('No active subscription to cancel.', 'error')
+        return redirect(url_for('account'))
+
+    stripe.Subscription.modify(subscription_id, cancel_at_period_end=True)
+    flash('Your plan will cancel at the end of the current billing period.', 'info')
+    return redirect(url_for('account'))
+
+
+def _update_user_from_subscription(user_id: int, subscription_obj) -> None:
+    items = subscription_obj.get('items', {}).get('data', [])
+    price_id = items[0].get('price', {}).get('id') if items else None
+    plan_code = PRICE_TO_PLAN.get(price_id, 'none')
+    status = (subscription_obj.get('status') or 'none').lower()
+    trial_end = _unix_to_iso(subscription_obj.get('trial_end'))
+
+    auth_billing.update_user_fields(
+        config.AUTH_DB_PATH,
+        user_id,
+        stripe_customer_id=subscription_obj.get('customer'),
+        stripe_subscription_id=subscription_obj.get('id'),
+        subscription_status=status,
+        plan_code=plan_code,
+        trial_ends_at=trial_end,
+    )
+    if status == 'trialing':
+        auth_billing.mark_trial_started(config.AUTH_DB_PATH, user_id, trial_end)
+
+
+
+@app.route('/billing/webhook', methods=['POST'])
+def stripe_webhook():
+    if not config.STRIPE_WEBHOOK_SECRET:
+        return jsonify({'error': 'webhook secret not configured'}), 400
+
+    payload = request.get_data(as_text=True)
+    sig_header = request.headers.get('Stripe-Signature', '')
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, config.STRIPE_WEBHOOK_SECRET)
+    except Exception:
+        return jsonify({'error': 'invalid webhook signature'}), 400
+
+    event_type = event.get('type')
+    obj = event.get('data', {}).get('object', {})
+
+    try:
+        if event_type == 'checkout.session.completed' and obj.get('mode') == 'subscription':
+            user_id = obj.get('metadata', {}).get('user_id')
+            subscription_id = obj.get('subscription')
+            if user_id and subscription_id:
+                subscription_obj = stripe.Subscription.retrieve(subscription_id)
+                _update_user_from_subscription(int(user_id), subscription_obj)
+
+        elif event_type in ('customer.subscription.updated', 'customer.subscription.created'):
+            subscription_id = obj.get('id')
+            user = auth_billing.get_user_by_subscription_id(config.AUTH_DB_PATH, subscription_id)
+            if not user and obj.get('customer'):
+                user = auth_billing.get_user_by_customer_id(config.AUTH_DB_PATH, obj.get('customer'))
+            if user:
+                _update_user_from_subscription(user['id'], obj)
+
+        elif event_type == 'customer.subscription.deleted':
+            subscription_id = obj.get('id')
+            user = auth_billing.get_user_by_subscription_id(config.AUTH_DB_PATH, subscription_id)
+            if user:
+                auth_billing.update_user_fields(
+                    config.AUTH_DB_PATH,
+                    user['id'],
+                    subscription_status='canceled',
+                    plan_code='none',
+                )
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+    return jsonify({'received': True})
+
+
+@app.route('/api/logs', methods=['POST'])
+@login_required
+def save_log():
+    """Save a digitized log to the user's account."""
+    user = _current_user(require_access=True)
+    data = request.json
+    
+    try:
+        import uuid
+        log_id = str(uuid.uuid4())
+        name = data.get('name', 'Untitled Log')
+        curve_count = data.get('curve_count', 0)
+        depth_start = float(data.get('depth_start', 0))
+        depth_end = float(data.get('depth_end', 0))
+        depth_unit = data.get('depth_unit', 'FT')
+        las_content = data.get('las_content', '')
+        
+        if not las_content:
+            return jsonify({'success': False, 'error': 'Missing LAS content'}), 400
+            
+        auth_billing.save_user_log(
+            config.AUTH_DB_PATH,
+            log_id=log_id,
+            user_id=user['id'],
+            name=name,
+            curve_count=curve_count,
+            depth_start=depth_start,
+            depth_end=depth_end,
+            depth_unit=depth_unit,
+            las_content=las_content
+        )
+        return jsonify({'success': True, 'log_id': log_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+
+@app.route('/api/logs/<log_id>/download', methods=['GET'])
+@login_required
+def download_log(log_id):
+    """Download a saved log as a .las file."""
+    user = _current_user(require_access=True)
+    log_data = auth_billing.get_user_log(config.AUTH_DB_PATH, log_id, user['id'])
+    
+    if not log_data:
+        return "Log not found", 404
+        
+    filename = f"{log_data['name'].replace(' ', '_')}.las"
+    
+    return Response(
+        log_data['las_content'],
+        mimetype='text/plain',
+        headers={'Content-Disposition': f'attachment;filename={filename}'}
+    )
+
 
 
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    return render_template('dashboard.html', app_version=APP_VERSION, build_time=APP_BUILD_TIME)
+    """User dashboard listing saved logs."""
+    user = _current_user(require_access=True)
+    if not user:
+        return redirect(url_for('login'))
+        
+    # Get global banner setting
+    settings = auth_billing.get_admin_settings(config.AUTH_DB_PATH)
+    global_banner = settings.get('global_banner')
+        
+    logs = auth_billing.get_user_logs(config.AUTH_DB_PATH, user['id'])
+    return render_template('dashboard.html', 
+                          user=user,
+                          logs=logs,
+                          global_banner=global_banner,
+                          impersonating=bool(session.get('impersonate_user_id')))
+
 
 
 @app.route('/las_viewer')
