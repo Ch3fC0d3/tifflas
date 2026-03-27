@@ -6967,18 +6967,23 @@
             if (primaryRegion && Number.isFinite(primaryRegion.left_px) && Number.isFinite(primaryRegion.right_px) && primaryRegion.right_px > primaryRegion.left_px) {
                 spanLeft = primaryRegion.left_px;
                 spanWidth = primaryRegion.right_px - primaryRegion.left_px;
-            } else if (!hasEnoughTracks && numDetected > 0) {
-                // Use the span of all detected tracks so the split stays within the log area
-                const allLeft = Math.min(...detectedTracks.map(t => t[0]));
-                const allRight = Math.max(...detectedTracks.map(t => t[1]));
-                if (Number.isFinite(allLeft) && Number.isFinite(allRight) && allRight > allLeft) {
-                    spanLeft = allLeft;
-                    spanWidth = allRight - allLeft;
+            } else if (numDetected > 0) {
+                // Use the span of all *valid* detected tracks so the split stays within the log area
+                const validTracks = detectedTracks.filter(t => Array.isArray(t) && Number.isFinite(t[0]) && Number.isFinite(t[1]) && t[1] > t[0]);
+                if (validTracks.length > 0) {
+                    const allLeft = Math.min(...validTracks.map(t => t[0]));
+                    const allRight = Math.max(...validTracks.map(t => t[1]));
+                    if (Number.isFinite(allLeft) && Number.isFinite(allRight) && allRight > allLeft) {
+                        spanLeft = allLeft;
+                        spanWidth = allRight - allLeft;
+                    }
                 }
             }
 
             for (let i = 0; i < numCurves; i++) {
-                const track = (tracks && tracks[i]) || (hasEnoughTracks && detectedTracks && detectedTracks[i]) || null;
+                const rawTrack = (tracks && tracks[i]) || (hasEnoughTracks && detectedTracks && detectedTracks[i]) || null;
+                // Only use a track if its boundaries are valid (left < right); discard degenerate AI outputs
+                const track = (rawTrack && Number.isFinite(rawTrack[0]) && Number.isFinite(rawTrack[1]) && rawTrack[1] > rawTrack[0]) ? rawTrack : null;
                 const hint = (hasEnoughHints && ocrSuggestions.curves[i]) || null;
                 const headerTrack = (hasEnoughHeaderTracks && headerTracks[i]) ? headerTracks[i] : null;
 
