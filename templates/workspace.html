@@ -7556,13 +7556,13 @@
             // independent and handled by depth overlays.
             let topDom = 0;
             let heightDom = rect.height;
-            if (primaryRegion && Number.isFinite(primaryRegion.top_px) && Number.isFinite(primaryRegion.bottom_px) && primaryRegion.bottom_px > primaryRegion.top_px) {
-                const scaleY = rect.height / imageHeight;
-                const topPx = Number(primaryRegion.top_px);
-                const bottomPx = Number(primaryRegion.bottom_px);
-                topDom = topPx * scaleY;
-                heightDom = (bottomPx - topPx) * scaleY;
-            }
+        // Height constraint removed so primary region spans the entire log
+        // if (primaryRegion && ...) { ... }
+        //     const scaleY = ...
+        //     ...
+        // }
+        // Height constraint removed
+        // Height constraint removed
 
             const box = document.createElement('div');
             box.className = 'primary-region-overlay';
@@ -7674,12 +7674,12 @@
 
             let topDom = 0;
             let heightDom = rect.height;
-            const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
-            if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
-                const scaleY = rect.height / imageHeight;
-                topDom = cfg.top_px * scaleY;
-                heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
-            }
+            // const cfg removed to allow full height ribbons
+            // if (cfg && ...) ...
+            //     const scaleY = ...
+            //     topDom = ...
+            //     heightDom = ...
+            // }
 
             clearTrackOverlays();
 
