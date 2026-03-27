@@ -6311,11 +6311,11 @@
                 // Sort so preferred curves appear first
                 curves = curves.slice().sort((a, b) => Number(b.preferred || false) - Number(a.preferred || false));
 
-                // Update detectedTracks so generateCurveInputs uses these windows
-                detectedTracks = curves.slice(0, 6).map(c => [
-                    Math.round(c.left_px),
-                    Math.round(c.right_px),
-                ]);
+                // Update detectedTracks so generateCurveInputs uses these windows.
+                // Filter out degenerate entries where the AI returned left >= right.
+                detectedTracks = curves.slice(0, 6)
+                    .map(c => [Math.round(c.left_px), Math.round(c.right_px)])
+                    .filter(t => t[1] > t[0]);
 
                 const numCurvesInput = document.getElementById('numCurves');
                 numCurvesInput.value = Math.min(6, curves.length);
@@ -6954,42 +6954,14 @@
             const displayNames = ['GR', 'RHOB', 'NPHI', 'DT', 'CALI', 'SP', 'RES', 'PERM'];
             const displayUnits = ['API', 'g/cc', 'v/v', 'us/ft', 'in', 'mV', 'ohmm', 'mD'];
 
-            // Determine whether AI data covers the requested number of curves.
-            // If not, fall back to an even split so ribbons don't overlap.
-            const numDetected = detectedTracks ? detectedTracks.length : 0;
-            const hasEnoughTracks = tracks ? true : (numDetected >= numCurves);
-            const hasEnoughHints = ocrSuggestions && ocrSuggestions.curves && ocrSuggestions.curves.length >= numCurves;
-            const hasEnoughHeaderTracks = Array.isArray(headerTracks) && headerTracks.length >= numCurves;
-
-            // Compute the even-split span used when AI track count < numCurves
-            let spanLeft = imageWidth * 0.1;
-            let spanWidth = imageWidth * 0.8;
-            if (primaryRegion && Number.isFinite(primaryRegion.left_px) && Number.isFinite(primaryRegion.right_px) && primaryRegion.right_px > primaryRegion.left_px) {
-                spanLeft = primaryRegion.left_px;
-                spanWidth = primaryRegion.right_px - primaryRegion.left_px;
-            } else if (numDetected > 0) {
-                // Use the span of all *valid* detected tracks so the split stays within the log area
-                const validTracks = detectedTracks.filter(t => Array.isArray(t) && Number.isFinite(t[0]) && Number.isFinite(t[1]) && t[1] > t[0]);
-                if (validTracks.length > 0) {
-                    const allLeft = Math.min(...validTracks.map(t => t[0]));
-                    const allRight = Math.max(...validTracks.map(t => t[1]));
-                    if (Number.isFinite(allLeft) && Number.isFinite(allRight) && allRight > allLeft) {
-                        spanLeft = allLeft;
-                        spanWidth = allRight - allLeft;
-                    }
-                }
-            }
-
             for (let i = 0; i < numCurves; i++) {
-                const rawTrack = (tracks && tracks[i]) || (hasEnoughTracks && detectedTracks && detectedTracks[i]) || null;
-                // Only use a track if its boundaries are valid (left < right); discard degenerate AI outputs
-                const track = (rawTrack && Number.isFinite(rawTrack[0]) && Number.isFinite(rawTrack[1]) && rawTrack[1] > rawTrack[0]) ? rawTrack : null;
-                const hint = (hasEnoughHints && ocrSuggestions.curves[i]) || null;
-                const headerTrack = (hasEnoughHeaderTracks && headerTracks[i]) ? headerTracks[i] : null;
+                const track = (tracks && tracks[i]) || (detectedTracks && detectedTracks[i]) || null;
+                const hint = (ocrSuggestions && ocrSuggestions.curves && ocrSuggestions.curves[i]) || null;
+                const headerTrack = Array.isArray(headerTracks) && headerTracks[i] ? headerTracks[i] : null;
 
                 // Base left/right pixels from panel/AI tracks or a simple fallback
-                let leftPx = track ? track[0] : hint ? Math.round(hint.left_px) : Math.floor(spanLeft + i * spanWidth / numCurves);
-                let rightPx = track ? track[1] : hint ? Math.round(hint.right_px) : Math.floor(spanLeft + (i + 1) * spanWidth / numCurves);
+                let leftPx = track ? track[0] : hint ? Math.round(hint.left_px) : Math.floor(imageWidth * (0.1 + i * 0.8 / numCurves));
+                let rightPx = track ? track[1] : hint ? Math.round(hint.right_px) : Math.floor(imageWidth * (0.1 + (i + 1) * 0.8 / numCurves));
 
                 if (headerTrack && Number.isFinite(headerTrack.left_px) && Number.isFinite(headerTrack.right_px) && headerTrack.right_px > headerTrack.left_px) {
                     leftPx = Math.round(headerTrack.left_px);
