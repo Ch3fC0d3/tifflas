@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TifLAS - Legacy Well Log Conversion</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            200: '#bae6fd',
+                            300: '#7dd3fc',
+                            400: '#38bdf8',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            800: '#075985',
+                            900: '#0c4a6e',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .hero-bg {
+            background-color: #0f172a; /* slate-900 */
+        }
+        @keyframes scan {
+            0% { top: -10%; }
+            100% { top: 110%; }
+        }
+        @keyframes reveal {
+            0% { clip-path: inset(0% 0 100% 0); }
+            100% { clip-path: inset(0% 0 -20% 0); }
+        }
+        .scanner-bar {
+            animation: scan 6s linear infinite;
+            animation-delay: 0s;
+        }
+        .revealed-layer {
+            animation: reveal 6s linear infinite;
+            animation-delay: 0s;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-50">
+
+    <!-- Navigation -->
+    <nav class="bg-white border-b border-slate-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 flex items-center">
+                        <span class="text-2xl font-bold text-primary-700">TifLAS</span>
+                    </div>
+                    <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                        <a href="#overview" class="border-transparent text-slate-500 hover:border-primary-500 hover:text-primary-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Overview
+                        </a>
+                        <a href="#workflow" class="border-transparent text-slate-500 hover:border-primary-500 hover:text-primary-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Workflow
+                        </a>
+                        <a href="#advantages" class="border-transparent text-slate-500 hover:border-primary-500 hover:text-primary-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Advantages
+                        </a>
+                    </div>
+                </div>
+                <div class="flex items-center">
+                    <a href="/login" class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                        Login
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <div class="relative bg-slate-900 overflow-hidden min-h-[600px] flex items-center">
+        <!-- Animated Background (WellLogHero approximation) -->
+        <div class="absolute inset-0 overflow-hidden pointer-events-none select-none bg-slate-900">
+            <!-- Grid Pattern -->
+            <div class="absolute inset-0 opacity-20">
+                <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" stroke-width="0.5" class="text-slate-500" />
+                        </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#grid)" />
+                </svg>
+            </div>
+
+            <!-- Track Dividers -->
+            <div class="absolute inset-0 flex justify-around opacity-20 border-slate-500">
+                <div class="border-r border-slate-500 h-full w-1/4"></div>
+                <div class="border-r border-slate-500 h-full w-1/4"></div>
+                <div class="border-r border-slate-500 h-full w-1/4"></div>
+            </div>
+
+            <div class="relative w-full h-full">
+                <!-- Layer 1: Raw / Faded Curves -->
+                <svg class="absolute inset-0 w-full h-full opacity-30" viewBox="0 0 400 600" preserveAspectRatio="none">
+                    <path d="M 50,0 Q 90,30 50,60 T 20,120 T 80,180 T 30,240 T 70,300 T 20,360 T 80,420 T 40,480 T 70,540 T 50,600" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-600" style="filter: blur(1px);" />
+                    <path d="M 350,0 Q 390,40 350,80 T 310,140 T 380,200 T 320,260 T 370,320 T 330,380 T 390,440 T 340,500 T 360,560 T 350,600" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-600" style="filter: blur(1px);" />
+                    <path d="M 150,0 Q 120,50 180,100 T 250,180 T 140,260 T 220,340 T 160,420 T 240,500 T 180,560 T 200,600" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-600" style="filter: blur(1px);" />
+                </svg>
+
+                <!-- Scanner Animation Container -->
+                <div class="absolute inset-0 w-full h-full revealed-layer">
+                    <!-- Layer 2: Digitized / Clean Curves -->
+                    <svg class="absolute inset-0 w-full h-full" viewBox="0 0 400 600" preserveAspectRatio="none">
+                        <path d="M 50,0 Q 90,30 50,60 T 20,120 T 80,180 T 30,240 T 70,300 T 20,360 T 80,420 T 40,480 T 70,540 T 50,600" fill="none" stroke="currentColor" stroke-width="3" class="text-green-400 drop-shadow-[0_0_3px_rgba(74,222,128,0.5)]" />
+                        <path d="M 350,0 Q 390,40 350,80 T 310,140 T 380,200 T 320,260 T 370,320 T 330,380 T 390,440 T 340,500 T 360,560 T 350,600" fill="none" stroke="currentColor" stroke-width="3" class="text-sky-400 drop-shadow-[0_0_3px_rgba(56,189,248,0.5)]" />
+                        <path d="M 150,0 Q 120,50 180,100 T 250,180 T 140,260 T 220,340 T 160,420 T 240,500 T 180,560 T 200,600" fill="none" stroke="currentColor" stroke-width="3" class="text-orange-400 drop-shadow-[0_0_3px_rgba(251,146,60,0.5)]" />
+                    </svg>
+                </div>
+
+                <!-- The Glowing Scanner Bar -->
+                <div class="absolute left-0 right-0 h-16 bg-gradient-to-b from-transparent via-primary-500/20 to-primary-500/5 scanner-bar"
+                    style="box-shadow: 0 4px 20px -2px rgba(14, 165, 233, 0.5);">
+                    <div class="absolute bottom-0 left-0 right-0 h-[2px] bg-primary-400 shadow-[0_0_15px_rgba(56,189,248,1)]"></div>
+                </div>
+            </div>
+            
+            <!-- Overlay to fade out bottom/top edges -->
+            <div class="absolute inset-0 bg-gradient-to-b from-slate-900/80 via-transparent to-slate-900/80 pointer-events-none"></div>
+        </div>
+        
+        <!-- Content Overlay -->
+        <div class="relative max-w-7xl mx-auto py-24 px-4 sm:py-32 sm:px-6 lg:px-8 z-10">
+            <div class="bg-slate-900/60 backdrop-blur-sm p-8 rounded-2xl border border-slate-700/50 shadow-2xl max-w-4xl">
+                <h1 class="text-4xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl">
+                    Converting Legacy Well Log Images into <span class="text-primary-400">Structured Subsurface Data</span>
+                </h1>
+                <p class="mt-6 text-xl text-slate-200 max-w-3xl">
+                    TifLAS is a software platform designed to convert scanned well log images into structured LAS files that can be used in modern subsurface analysis workflows.
+                </p>
+                <div class="mt-10">
+                    <a href="/login" class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-slate-900 bg-primary-400 hover:bg-primary-500 transition-colors shadow-lg shadow-primary-500/20">
+                        Get Started <i data-lucide="arrow-right" class="ml-2 h-5 w-5"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Problem & Solution -->
+    <div id="overview" class="py-16 bg-white overflow-hidden lg:py-24">
+        <div class="relative max-w-xl mx-auto px-4 sm:px-6 lg:px-8 lg:max-w-7xl">
+            <div class="relative">
+                <h2 class="text-center text-3xl leading-8 font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+                    Unlock Historical Data
+                </h2>
+                <p class="mt-4 max-w-3xl mx-auto text-center text-xl text-slate-500">
+                    Millions of historic well logs exist only as scanned images. TifLAS addresses this problem by automatically extracting curve data, depth information, and track structure.
+                </p>
+            </div>
+
+            <div class="relative mt-12 lg:mt-24 lg:grid lg:grid-cols-2 lg:gap-8 lg:items-center">
+                <div class="relative">
+                    <h3 class="text-2xl font-extrabold text-slate-900 tracking-tight">
+                        The Technical Problem
+                    </h3>
+                    <p class="mt-3 text-lg text-slate-500">
+                        Legacy logs stored as Paper, Microfilm, or Scanned images (TIFF, PNG, PDF) cannot be directly used by petrophysical software.
+                    </p>
+
+                    <dl class="mt-10 space-y-10">
+                        <div class="relative">
+                            <dt>
+                                <div class="absolute flex items-center justify-center h-12 w-12 rounded-md bg-primary-500 text-white">
+                                    <i data-lucide="lock" class="h-6 w-6"></i>
+                                </div>
+                                <p class="ml-16 text-lg leading-6 font-medium text-slate-900">Data Lock-in</p>
+                            </dt>
+                            <dd class="mt-2 ml-16 text-base text-slate-500">
+                                Data exists only as graphical curves plotted against depth, making it inaccessible for numerical analysis.
+                            </dd>
+                        </div>
+                        <div class="relative">
+                            <dt>
+                                <div class="absolute flex items-center justify-center h-12 w-12 rounded-md bg-primary-500 text-white">
+                                    <i data-lucide="bar-chart" class="h-6 w-6"></i>
+                                </div>
+                                <p class="ml-16 text-lg leading-6 font-medium text-slate-900">Manual Digitization</p>
+                            </dt>
+                            <dd class="mt-2 ml-16 text-base text-slate-500">
+                                Traditional recovery requires manual curve tracing, taking hours per log and remaining expensive.
+                            </dd>
+                        </div>
+                    </dl>
+                </div>
+
+                <div class="mt-10 -mx-4 relative lg:mt-0" aria-hidden="true">
+                    <div class="relative bg-slate-100 rounded-xl shadow-xl p-8 border border-slate-200">
+                        <h3 class="text-2xl font-extrabold text-slate-900 tracking-tight mb-4">
+                            The TifLAS Solution
+                        </h3>
+                        <p class="text-lg text-slate-600 mb-6">
+                            Using computer vision and data reconstruction techniques, TifLAS transforms scanned well log images into structured digital datasets.
+                        </p>
+                        <ul class="space-y-4">
+                            <li class="flex items-start">
+                                <i data-lucide="check-circle" class="flex-shrink-0 h-6 w-6 text-green-500"></i>
+                                <span class="ml-3 text-base text-slate-500">Petrophysical interpretation software compatible</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i data-lucide="check-circle" class="flex-shrink-0 h-6 w-6 text-green-500"></i>
+                                <span class="ml-3 text-base text-slate-500">Reservoir modeling systems ready</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i data-lucide="check-circle" class="flex-shrink-0 h-6 w-6 text-green-500"></i>
+                                <span class="ml-3 text-base text-slate-500">Geological data platforms integration</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Workflow Section -->
+    <div id="workflow" class="py-16 bg-slate-50 overflow-hidden lg:py-24">
+        <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="relative">
+                <h2 class="text-center text-3xl leading-8 font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+                    Technical Workflow
+                </h2>
+                <p class="mt-4 max-w-3xl mx-auto text-center text-xl text-slate-500">
+                    The TifLAS processing pipeline consists of several advanced stages to ensure accuracy.
+                </p>
+            </div>
+
+            <div class="mt-12 relative">
+                <div class="grid grid-cols-1 gap-8 md:grid-cols-5">
+                    <!-- Step 1 -->
+                    <div class="relative bg-white p-6 rounded-lg shadow-md border-t-4 border-primary-500">
+                        <h3 class="text-lg font-bold text-slate-900 mb-2">1. Image Preprocessing</h3>
+                        <p class="text-sm text-slate-600">De-skewing, contrast normalization, and grid detection.</p>
+                    </div>
+                    <!-- Step 2 -->
+                    <div class="relative bg-white p-6 rounded-lg shadow-md border-t-4 border-primary-500">
+                        <h3 class="text-lg font-bold text-slate-900 mb-2">2. Depth Scale Detection</h3>
+                        <p class="text-sm text-slate-600">Reconstructing the depth scale from markers and grid lines.</p>
+                    </div>
+                    <!-- Step 3 -->
+                    <div class="relative bg-white p-6 rounded-lg shadow-md border-t-4 border-primary-500">
+                        <h3 class="text-lg font-bold text-slate-900 mb-2">3. Curve Detection</h3>
+                        <p class="text-sm text-slate-600">Identifying and isolating plotted curves using CV.</p>
+                    </div>
+                    <!-- Step 4 -->
+                    <div class="relative bg-white p-6 rounded-lg shadow-md border-t-4 border-primary-500">
+                        <h3 class="text-lg font-bold text-slate-900 mb-2">4. Curve Digitization</h3>
+                        <p class="text-sm text-slate-600">Sampling and translating curves into numerical values.</p>
+                    </div>
+                    <!-- Step 5 -->
+                    <div class="relative bg-white p-6 rounded-lg shadow-md border-t-4 border-primary-500">
+                        <h3 class="text-lg font-bold text-slate-900 mb-2">5. LAS Reconstruction</h3>
+                        <p class="text-sm text-slate-600">Structuring extracted data into standard LAS files.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Architecture & Advantages -->
+    <div id="advantages" class="py-16 bg-white overflow-hidden lg:py-24">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="lg:text-center mb-16">
+                <h2 class="text-base text-primary-600 font-semibold tracking-wide uppercase">Why TifLAS?</h2>
+                <p class="mt-2 text-3xl leading-8 font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+                    Key Advantages & Market Opportunity
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 gap-12 lg:grid-cols-2">
+                <div>
+                    <h3 class="text-2xl font-bold text-slate-900 mb-6">Key Advantages</h3>
+                    <div class="space-y-8">
+                        <div class="flex">
+                            <div class="flex-shrink-0">
+                                <div class="flex items-center justify-center h-12 w-12 rounded-md bg-primary-100 text-primary-600">
+                                    <i data-lucide="database" class="h-6 w-6"></i>
+                                </div>
+                            </div>
+                            <div class="ml-4">
+                                <h4 class="text-lg leading-6 font-medium text-slate-900">Recover Value from Legacy Data</h4>
+                                <p class="mt-2 text-base text-slate-500">
+                                    Make large archives of historical well logs usable again in modern digital workflows.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="flex">
+                            <div class="flex-shrink-0">
+                                <div class="flex items-center justify-center h-12 w-12 rounded-md bg-primary-100 text-primary-600">
+                                    <i data-lucide="cpu" class="h-6 w-6"></i>
+                                </div>
+                            </div>
+                            <div class="ml-4">
+                                <h4 class="text-lg leading-6 font-medium text-slate-900">Reduce Manual Digitization</h4>
+                                <p class="mt-2 text-base text-slate-500">
+                                    Automated curve extraction significantly reduces the labor required to digitize logs.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="flex">
+                            <div class="flex-shrink-0">
+                                <div class="flex items-center justify-center h-12 w-12 rounded-md bg-primary-100 text-primary-600">
+                                    <i data-lucide="globe" class="h-6 w-6"></i>
+                                </div>
+                            </div>
+                            <div class="ml-4">
+                                <h4 class="text-lg leading-6 font-medium text-slate-900">Improve Data Accessibility</h4>
+                                <p class="mt-2 text-base text-slate-500">
+                                    Structured LAS files can be indexed, searched, and integrated into geological databases.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 p-8 rounded-xl border border-slate-200">
+                    <h3 class="text-2xl font-bold text-slate-900 mb-6">System Architecture</h3>
+                    <p class="text-slate-600 mb-6">
+                        TifLAS is designed as a modular processing pipeline that integrates several technologies:
+                    </p>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-center text-slate-700">
+                            <i data-lucide="layers" class="h-5 w-5 mr-3 text-primary-500"></i>
+                            Image processing algorithms
+                        </li>
+                        <li class="flex items-center text-slate-700">
+                            <i data-lucide="layers" class="h-5 w-5 mr-3 text-primary-500"></i>
+                            Computer vision for curve detection
+                        </li>
+                        <li class="flex items-center text-slate-700">
+                            <i data-lucide="layers" class="h-5 w-5 mr-3 text-primary-500"></i>
+                            Data reconstruction and scaling
+                        </li>
+                        <li class="flex items-center text-slate-700">
+                            <i data-lucide="layers" class="h-5 w-5 mr-3 text-primary-500"></i>
+                            LAS file generation and validation
+                        </li>
+                    </ul>
+                    
+                    <div class="border-t border-slate-200 pt-6">
+                        <h4 class="text-lg font-bold text-slate-900 mb-2">Market Opportunity</h4>
+                        <p class="text-slate-600">
+                            Oil and gas companies possess vast archives of legacy log images. Digitizing this data represents a major opportunity to unlock previously inaccessible subsurface information and improve reservoir understanding without drilling new wells.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900">
+        <div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center">
+                    <span class="text-2xl font-bold text-white">TifLAS</span>
+                </div>
+                <p class="text-slate-400 text-sm">
+                    &copy; 2024 TifLAS. All rights reserved.
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
