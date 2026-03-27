@@ -6964,7 +6964,7 @@
         const hint = (useHints && ocrSuggestions.curves[i]) || null;
         const headerTrack = (useHeaderTracks && Array.isArray(headerTracks) && headerTracks[i]) ? headerTracks[i] : null;
 
-                        // Base left/right pixels from panel/AI tracks or a simple fallback
+        // Base left/right pixels from panel/AI tracks or a simple fallback
         let fallbackLeft = 0;
         let fallbackWidth = imageWidth;
         if (primaryRegion && Number.isFinite(primaryRegion.left_px) && Number.isFinite(primaryRegion.right_px)) {
