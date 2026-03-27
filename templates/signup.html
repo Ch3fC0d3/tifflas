@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Account - TifLAS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div class="sm:mx-auto sm:w-full sm:max-w-lg">
+        <a href="/" class="flex justify-center mb-6 text-slate-500 hover:text-slate-700 items-center">
+            <i data-lucide="arrow-left" class="h-4 w-4 mr-2"></i> Back to Home
+        </a>
+        <h2 class="text-center text-3xl font-extrabold text-slate-900">Create your TifLAS account</h2>
+        <p class="mt-2 text-center text-sm text-slate-600">
+            Card required at signup to start your 30-day free trial.
+        </p>
+    </div>
+
+    <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-lg">
+        <div class="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+            <form class="space-y-4" action="/signup" method="POST">
+                {% if error %}
+                <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{{ error }}</div>
+                {% endif %}
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                        <div class="px-4 py-3 rounded-md text-sm {% if category == 'error' %}bg-red-50 border border-red-200 text-red-700{% elif category == 'warning' %}bg-amber-50 border border-amber-200 text-amber-700{% else %}bg-blue-50 border border-blue-200 text-blue-700{% endif %}">
+                            {{ message }}
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <div>
+                    <label for="full_name" class="block text-sm font-medium text-slate-700">Full name</label>
+                    <input id="full_name" name="full_name" required class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Jane Doe">
+                </div>
+
+                <div>
+                    <label for="company_name" class="block text-sm font-medium text-slate-700">Company name</label>
+                    <input id="company_name" name="company_name" required class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Acme Energy">
+                    <p class="mt-1 text-xs text-slate-500">Trial policy: one trial per company/email/domain.</p>
+                </div>
+
+                <div>
+                    <label for="email" class="block text-sm font-medium text-slate-700">Email</label>
+                    <input id="email" name="email" type="email" required class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="you@company.com">
+                </div>
+
+                <div>
+                    <label for="password" class="block text-sm font-medium text-slate-700">Password</label>
+                    <input id="password" name="password" type="password" minlength="8" required class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="At least 8 characters">
+                </div>
+
+                <button type="submit" class="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+                    Create account
+                </button>
+            </form>
+
+            <p class="mt-6 text-center text-sm text-slate-600">
+                Already have an account? <a href="/login" class="font-semibold text-slate-900 hover:text-slate-700">Sign in</a>
+            </p>
+        </div>
+    </div>
+
+    <script>lucide.createIcons();</script>
+</body>
+</html>

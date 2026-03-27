@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 180" width="520" height="180">
+  <defs>
+    <filter id="ts" x="-3%" y="-3%" width="106%" height="106%">
+      <feDropShadow dx="2" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.8"/>
+    </filter>
+    
+    <!-- Linear Gradients for 3D metallic text effect -->
+    <linearGradient id="gradOrange" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFA81C"/>
+      <stop offset="50%" stop-color="#F25B00"/>
+      <stop offset="100%" stop-color="#B23500"/>
+    </linearGradient>
+
+    <linearGradient id="gradSilver" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E5E5E5"/>
+      <stop offset="50%" stop-color="#A5A5A5"/>
+      <stop offset="100%" stop-color="#707070"/>
+    </linearGradient>
+
+    <linearGradient id="gradGreen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#C5ED52"/>
+      <stop offset="50%" stop-color="#6DBA24"/>
+      <stop offset="100%" stop-color="#2D7212"/>
+    </linearGradient>
+
+    <!-- Linear Gradients for thick glossy wave lines -->
+    <linearGradient id="waveSilver" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#808080"/>
+    </linearGradient>
+    <linearGradient id="waveOrange" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFB338"/>
+      <stop offset="100%" stop-color="#D96300"/>
+    </linearGradient>
+    <linearGradient id="waveGreen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#A4E033"/>
+      <stop offset="100%" stop-color="#469910"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(10,0)">
+    <!-- Orange wave (background) -->
+    <path d="
+      M 10,58
+      C 10,58  20,100  35,100
+      C 50,100 65,30   80,30
+      C 95,30  110,60  120,60
+      C 130,60 145,25  160,25
+      C 175,25 190,58  200,58
+    " fill="none" stroke="url(#waveOrange)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ts)"/>
+
+    <!-- Green wave (tall amplitude foreground) -->
+    <path d="
+      M 190,58
+      C 200,58 220,10  245,10
+      C 270,10 290,110 320,110
+      C 350,110 370,15 400,15
+      C 430,15 450,100 465,100
+      C 480,100 495,20 500,20
+    " fill="none" stroke="url(#waveGreen)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ts)"/>
+
+    <!-- Silver horizontal-ish wave (crosses through everything) -->
+    <path d="
+      M 5,50
+      C 30,50  70,50   100,50
+      C 130,50 150,85  180,85
+      C 210,85 240,40  280,40
+      C 320,40 350,60  380,60
+      C 410,60 440,35  465,35
+      C 480,35 495,45  505,45
+    " fill="none" stroke="url(#waveSilver)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ts)"/>
+
+    <!-- TIF text (Orange) -->
+    <text x="15" y="125" font-family="'Arial Black', 'Impact', Arial, sans-serif" font-weight="900" font-size="92" fill="url(#gradOrange)" letter-spacing="-4" filter="url(#ts)">TIF</text>
+
+    <!-- L text (Silver) -->
+    <text x="180" y="125" font-family="'Arial Black', 'Impact', Arial, sans-serif" font-weight="900" font-size="92" fill="url(#gradSilver)" letter-spacing="-2" filter="url(#ts)">L</text>
+
+    <!-- AS text (Green) -->
+    <text x="240" y="125" font-family="'Arial Black', 'Impact', Arial, sans-serif" font-weight="900" font-size="92" fill="url(#gradGreen)" letter-spacing="-3" filter="url(#ts)">AS</text>
+
+    <!-- Subtitle (Bright Green) -->
+    <text x="45" y="165" font-family="Arial, Helvetica, sans-serif" font-weight="600" font-size="34" fill="#69C21A" letter-spacing="0.5" filter="url(#ts)">Seismograph Digitalization</text>
+  </g>
+</svg>

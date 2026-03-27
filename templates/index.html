@@ -11,16 +11,25 @@
                 extend: {
                     colors: {
                         primary: {
-                            50: '#f0f9ff',
-                            100: '#e0f2fe',
-                            200: '#bae6fd',
-                            300: '#7dd3fc',
-                            400: '#38bdf8',
-                            500: '#0ea5e9',
-                            600: '#0284c7',
-                            700: '#0369a1',
-                            800: '#075985',
-                            900: '#0c4a6e',
+                            50: '#f7fde8',
+                            100: '#eefac4',
+                            200: '#dcf48f',
+                            300: '#c5ed52',
+                            400: '#a5df26',
+                            500: '#86c611',
+                            600: '#659b09',
+                            700: '#4d760b',
+                            800: '#3f5f0e',
+                            900: '#365110',
+                            950: '#1a2a04',
+                        },
+                        orange: {
+                            500: '#FF9100',
+                            600: '#E67A00',
+                        },
+                        dark: {
+                            800: '#1A212A',
+                            900: '#12171E',
                         }
                     }
                 }
@@ -51,30 +60,33 @@
         }
     </style>
 </head>
-<body class="min-h-screen bg-slate-50">
+<body class="min-h-screen bg-slate-900 text-slate-200">
 
     <!-- Navigation -->
-    <nav class="bg-white border-b border-slate-200 sticky top-0 z-50">
+    <nav class="bg-slate-800/80 border-b border-slate-700 sticky top-0 z-50 backdrop-blur-md">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
                 <div class="flex items-center">
                     <div class="flex-shrink-0 flex items-center">
-                        <span class="text-2xl font-bold text-primary-700">TifLAS</span>
+                        <img src="/static/images/logo.svg" alt="TifLAS Logo" class="h-12 w-auto">
                     </div>
                     <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
-                        <a href="#overview" class="border-transparent text-slate-500 hover:border-primary-500 hover:text-primary-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                        <a href="#overview" class="border-transparent text-slate-300 hover:border-primary-500 hover:text-white inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
                             Overview
                         </a>
-                        <a href="#workflow" class="border-transparent text-slate-500 hover:border-primary-500 hover:text-primary-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                        <a href="#workflow" class="border-transparent text-slate-300 hover:border-primary-500 hover:text-white inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
                             Workflow
                         </a>
-                        <a href="#advantages" class="border-transparent text-slate-500 hover:border-primary-500 hover:text-primary-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                        <a href="#advantages" class="border-transparent text-slate-300 hover:border-primary-500 hover:text-white inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
                             Advantages
                         </a>
                     </div>
                 </div>
                 <div class="flex items-center">
-                    <a href="/login" class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                    <a href="/signup" class="bg-[#667eea] hover:bg-[#764ba2] text-white px-4 py-2 rounded-md text-sm font-bold transition-colors border border-transparent shadow-[0_0_10px_rgba(102,126,234,0.3)]">
+                        Start Free Trial
+                    </a>
+                    <a href="/login" class="ml-2 border border-slate-600 text-slate-200 px-4 py-2 rounded-md text-sm font-bold hover:bg-slate-800 transition-colors">
                         Login
                     </a>
                 </div>
@@ -135,17 +147,27 @@
         </div>
         
         <!-- Content Overlay -->
-        <div class="relative max-w-7xl mx-auto py-24 px-4 sm:py-32 sm:px-6 lg:px-8 z-10">
-            <div class="bg-slate-900/60 backdrop-blur-sm p-8 rounded-2xl border border-slate-700/50 shadow-2xl max-w-4xl">
+        <div class="relative max-w-7xl mx-auto py-24 px-4 sm:py-32 sm:px-6 lg:px-8 z-10 flex flex-col items-center">
+            
+            <!-- Large Centered Logo -->
+            <div class="mb-8 w-full max-w-2xl flex justify-center">
+                <img src="/static/images/logo.svg" alt="TifLAS Logo" class="w-full h-auto drop-shadow-2xl opacity-90">
+            </div>
+
+            <!-- Hero Text Box -->
+            <div class="bg-slate-900/40 backdrop-blur-md p-10 rounded-3xl border border-slate-700/30 shadow-2xl max-w-4xl text-center">
                 <h1 class="text-4xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl">
                     Converting Legacy Well Log Images into <span class="text-primary-400">Structured Subsurface Data</span>
                 </h1>
-                <p class="mt-6 text-xl text-slate-200 max-w-3xl">
+                <p class="mt-6 text-xl text-slate-200 max-w-3xl mx-auto">
                     TifLAS is a software platform designed to convert scanned well log images into structured LAS files that can be used in modern subsurface analysis workflows.
                 </p>
-                <div class="mt-10">
-                    <a href="/login" class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-slate-900 bg-primary-400 hover:bg-primary-500 transition-colors shadow-lg shadow-primary-500/20">
-                        Get Started <i data-lucide="arrow-right" class="ml-2 h-5 w-5"></i>
+                <p class="mt-3 text-sm text-slate-300">
+                    30-day free trial, then $99/month or $999/year.
+                </p>
+                <div class="mt-10 flex justify-center">
+                    <a href="/signup" class="inline-flex items-center px-8 py-4 border border-transparent text-lg font-bold rounded-lg text-white bg-[#667eea] hover:bg-[#764ba2] transition-colors shadow-[0_0_20px_rgba(102,126,234,0.3)]">
+                        Start Free Trial <i data-lucide="arrow-right" class="ml-2 h-6 w-6"></i>
                     </a>
                 </div>
             </div>
@@ -153,46 +175,46 @@
     </div>
 
     <!-- Problem & Solution -->
-    <div id="overview" class="py-16 bg-white overflow-hidden lg:py-24">
+    <div id="overview-2" class="py-16 bg-slate-900 overflow-hidden lg:py-24">
         <div class="relative max-w-xl mx-auto px-4 sm:px-6 lg:px-8 lg:max-w-7xl">
             <div class="relative">
-                <h2 class="text-center text-3xl leading-8 font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+                <h2 class="text-center text-3xl leading-8 font-extrabold tracking-tight text-white sm:text-4xl">
                     Unlock Historical Data
                 </h2>
-                <p class="mt-4 max-w-3xl mx-auto text-center text-xl text-slate-500">
+                <p class="mt-4 max-w-3xl mx-auto text-center text-xl text-slate-400">
                     Millions of historic well logs exist only as scanned images. TifLAS addresses this problem by automatically extracting curve data, depth information, and track structure.
                 </p>
             </div>
 
             <div class="relative mt-12 lg:mt-24 lg:grid lg:grid-cols-2 lg:gap-8 lg:items-center">
                 <div class="relative">
-                    <h3 class="text-2xl font-extrabold text-slate-900 tracking-tight">
+                    <h3 class="text-2xl font-extrabold text-white tracking-tight">
                         The Technical Problem
                     </h3>
-                    <p class="mt-3 text-lg text-slate-500">
+                    <p class="mt-3 text-lg text-slate-400">
                         Legacy logs stored as Paper, Microfilm, or Scanned images (TIFF, PNG, PDF) cannot be directly used by petrophysical software.
                     </p>
 
                     <dl class="mt-10 space-y-10">
                         <div class="relative">
                             <dt>
-                                <div class="absolute flex items-center justify-center h-12 w-12 rounded-md bg-primary-500 text-white">
+                                <div class="absolute flex items-center justify-center h-12 w-12 rounded-md bg-primary-900/50 text-primary-400 border border-primary-500/30">
                                     <i data-lucide="lock" class="h-6 w-6"></i>
                                 </div>
-                                <p class="ml-16 text-lg leading-6 font-medium text-slate-900">Data Lock-in</p>
+                                <p class="ml-16 text-lg leading-6 font-medium text-white">Data Lock-in</p>
                             </dt>
-                            <dd class="mt-2 ml-16 text-base text-slate-500">
+                            <dd class="mt-2 ml-16 text-base text-slate-400">
                                 Data exists only as graphical curves plotted against depth, making it inaccessible for numerical analysis.
                             </dd>
                         </div>
                         <div class="relative">
                             <dt>
-                                <div class="absolute flex items-center justify-center h-12 w-12 rounded-md bg-primary-500 text-white">
+                                <div class="absolute flex items-center justify-center h-12 w-12 rounded-md bg-primary-900/50 text-primary-400 border border-primary-500/30">
                                     <i data-lucide="bar-chart" class="h-6 w-6"></i>
                                 </div>
-                                <p class="ml-16 text-lg leading-6 font-medium text-slate-900">Manual Digitization</p>
+                                <p class="ml-16 text-lg leading-6 font-medium text-white">Manual Digitization</p>
                             </dt>
-                            <dd class="mt-2 ml-16 text-base text-slate-500">
+                            <dd class="mt-2 ml-16 text-base text-slate-400">
                                 Traditional recovery requires manual curve tracing, taking hours per log and remaining expensive.
                             </dd>
                         </div>
@@ -200,25 +222,25 @@
                 </div>
 
                 <div class="mt-10 -mx-4 relative lg:mt-0" aria-hidden="true">
-                    <div class="relative bg-slate-100 rounded-xl shadow-xl p-8 border border-slate-200">
-                        <h3 class="text-2xl font-extrabold text-slate-900 tracking-tight mb-4">
+                    <div class="relative bg-slate-800 rounded-xl shadow-xl p-8 border border-slate-700">
+                        <h3 class="text-2xl font-extrabold text-white tracking-tight mb-4">
                             The TifLAS Solution
                         </h3>
-                        <p class="text-lg text-slate-600 mb-6">
+                        <p class="text-lg text-slate-300 mb-6">
                             Using computer vision and data reconstruction techniques, TifLAS transforms scanned well log images into structured digital datasets.
                         </p>
                         <ul class="space-y-4">
                             <li class="flex items-start">
-                                <i data-lucide="check-circle" class="flex-shrink-0 h-6 w-6 text-green-500"></i>
-                                <span class="ml-3 text-base text-slate-500">Petrophysical interpretation software compatible</span>
+                                <i data-lucide="check-circle" class="flex-shrink-0 h-6 w-6 text-primary-500"></i>
+                                <span class="ml-3 text-base text-slate-300">Petrophysical interpretation software compatible</span>
                             </li>
                             <li class="flex items-start">
-                                <i data-lucide="check-circle" class="flex-shrink-0 h-6 w-6 text-green-500"></i>
-                                <span class="ml-3 text-base text-slate-500">Reservoir modeling systems ready</span>
+                                <i data-lucide="check-circle" class="flex-shrink-0 h-6 w-6 text-primary-500"></i>
+                                <span class="ml-3 text-base text-slate-300">Reservoir modeling systems ready</span>
                             </li>
                             <li class="flex items-start">
-                                <i data-lucide="check-circle" class="flex-shrink-0 h-6 w-6 text-green-500"></i>
-                                <span class="ml-3 text-base text-slate-500">Geological data platforms integration</span>
+                                <i data-lucide="check-circle" class="flex-shrink-0 h-6 w-6 text-primary-500"></i>
+                                <span class="ml-3 text-base text-slate-300">Geological data platforms integration</span>
                             </li>
                         </ul>
                     </div>
@@ -228,13 +250,13 @@
     </div>
 
     <!-- Workflow Section -->
-    <div id="workflow" class="py-16 bg-slate-50 overflow-hidden lg:py-24">
+    <div id="workflow-2" class="py-16 bg-slate-800 overflow-hidden lg:py-24">
         <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="relative">
-                <h2 class="text-center text-3xl leading-8 font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+                <h2 class="text-center text-3xl leading-8 font-extrabold tracking-tight text-white sm:text-4xl">
                     Technical Workflow
                 </h2>
-                <p class="mt-4 max-w-3xl mx-auto text-center text-xl text-slate-500">
+                <p class="mt-4 max-w-3xl mx-auto text-center text-xl text-slate-400">
                     The TifLAS processing pipeline consists of several advanced stages to ensure accuracy.
                 </p>
             </div>
@@ -242,29 +264,29 @@
             <div class="mt-12 relative">
                 <div class="grid grid-cols-1 gap-8 md:grid-cols-5">
                     <!-- Step 1 -->
-                    <div class="relative bg-white p-6 rounded-lg shadow-md border-t-4 border-primary-500">
-                        <h3 class="text-lg font-bold text-slate-900 mb-2">1. Image Preprocessing</h3>
-                        <p class="text-sm text-slate-600">De-skewing, contrast normalization, and grid detection.</p>
+                    <div class="relative bg-slate-900 p-6 rounded-lg shadow-md border-t-4 border-primary-500 border-x border-b border-slate-700">
+                        <h3 class="text-lg font-bold text-white mb-2">1. Image Preprocessing</h3>
+                        <p class="text-sm text-slate-400">De-skewing, contrast normalization, and grid detection.</p>
                     </div>
                     <!-- Step 2 -->
-                    <div class="relative bg-white p-6 rounded-lg shadow-md border-t-4 border-primary-500">
-                        <h3 class="text-lg font-bold text-slate-900 mb-2">2. Depth Scale Detection</h3>
-                        <p class="text-sm text-slate-600">Reconstructing the depth scale from markers and grid lines.</p>
+                    <div class="relative bg-slate-900 p-6 rounded-lg shadow-md border-t-4 border-primary-500 border-x border-b border-slate-700">
+                        <h3 class="text-lg font-bold text-white mb-2">2. Depth Scale Detection</h3>
+                        <p class="text-sm text-slate-400">Reconstructing the depth scale from markers and grid lines.</p>
                     </div>
                     <!-- Step 3 -->
-                    <div class="relative bg-white p-6 rounded-lg shadow-md border-t-4 border-primary-500">
-                        <h3 class="text-lg font-bold text-slate-900 mb-2">3. Curve Detection</h3>
-                        <p class="text-sm text-slate-600">Identifying and isolating plotted curves using CV.</p>
+                    <div class="relative bg-slate-900 p-6 rounded-lg shadow-md border-t-4 border-primary-500 border-x border-b border-slate-700">
+                        <h3 class="text-lg font-bold text-white mb-2">3. Curve Detection</h3>
+                        <p class="text-sm text-slate-400">Identifying and isolating plotted curves using CV.</p>
                     </div>
                     <!-- Step 4 -->
-                    <div class="relative bg-white p-6 rounded-lg shadow-md border-t-4 border-primary-500">
-                        <h3 class="text-lg font-bold text-slate-900 mb-2">4. Curve Digitization</h3>
-                        <p class="text-sm text-slate-600">Sampling and translating curves into numerical values.</p>
+                    <div class="relative bg-slate-900 p-6 rounded-lg shadow-md border-t-4 border-primary-500 border-x border-b border-slate-700">
+                        <h3 class="text-lg font-bold text-white mb-2">4. Curve Digitization</h3>
+                        <p class="text-sm text-slate-400">Sampling and translating curves into numerical values.</p>
                     </div>
                     <!-- Step 5 -->
-                    <div class="relative bg-white p-6 rounded-lg shadow-md border-t-4 border-primary-500">
-                        <h3 class="text-lg font-bold text-slate-900 mb-2">5. LAS Reconstruction</h3>
-                        <p class="text-sm text-slate-600">Structuring extracted data into standard LAS files.</p>
+                    <div class="relative bg-slate-900 p-6 rounded-lg shadow-md border-t-4 border-primary-500 border-x border-b border-slate-700">
+                        <h3 class="text-lg font-bold text-white mb-2">5. LAS Reconstruction</h3>
+                        <p class="text-sm text-slate-400">Structuring extracted data into standard LAS files.</p>
                     </div>
                 </div>
             </div>
@@ -272,54 +294,54 @@
     </div>
 
     <!-- Architecture & Advantages -->
-    <div id="advantages" class="py-16 bg-white overflow-hidden lg:py-24">
+    <div id="advantages" class="py-16 bg-slate-800">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="lg:text-center mb-16">
-                <h2 class="text-base text-primary-600 font-semibold tracking-wide uppercase">Why TifLAS?</h2>
-                <p class="mt-2 text-3xl leading-8 font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+                <h2 class="text-base text-primary-400 font-semibold tracking-wide uppercase">Why TifLAS?</h2>
+                <p class="mt-2 text-3xl leading-8 font-extrabold tracking-tight text-white sm:text-4xl">
                     Key Advantages & Market Opportunity
                 </p>
             </div>
 
             <div class="grid grid-cols-1 gap-12 lg:grid-cols-2">
                 <div>
-                    <h3 class="text-2xl font-bold text-slate-900 mb-6">Key Advantages</h3>
+                    <h3 class="text-2xl font-bold text-white mb-6">Key Advantages</h3>
                     <div class="space-y-8">
                         <div class="flex">
                             <div class="flex-shrink-0">
-                                <div class="flex items-center justify-center h-12 w-12 rounded-md bg-primary-100 text-primary-600">
+                                <div class="flex items-center justify-center h-12 w-12 rounded-md bg-primary-900/50 text-primary-400 border border-primary-500/30">
                                     <i data-lucide="database" class="h-6 w-6"></i>
                                 </div>
                             </div>
                             <div class="ml-4">
-                                <h4 class="text-lg leading-6 font-medium text-slate-900">Recover Value from Legacy Data</h4>
-                                <p class="mt-2 text-base text-slate-500">
+                                <h4 class="text-lg leading-6 font-medium text-white">Recover Value from Legacy Data</h4>
+                                <p class="mt-2 text-base text-slate-300">
                                     Make large archives of historical well logs usable again in modern digital workflows.
                                 </p>
                             </div>
                         </div>
                         <div class="flex">
                             <div class="flex-shrink-0">
-                                <div class="flex items-center justify-center h-12 w-12 rounded-md bg-primary-100 text-primary-600">
+                                <div class="flex items-center justify-center h-12 w-12 rounded-md bg-primary-900/50 text-primary-400 border border-primary-500/30">
                                     <i data-lucide="cpu" class="h-6 w-6"></i>
                                 </div>
                             </div>
                             <div class="ml-4">
-                                <h4 class="text-lg leading-6 font-medium text-slate-900">Reduce Manual Digitization</h4>
-                                <p class="mt-2 text-base text-slate-500">
+                                <h4 class="text-lg leading-6 font-medium text-white">Reduce Manual Digitization</h4>
+                                <p class="mt-2 text-base text-slate-400">
                                     Automated curve extraction significantly reduces the labor required to digitize logs.
                                 </p>
                             </div>
                         </div>
                         <div class="flex">
                             <div class="flex-shrink-0">
-                                <div class="flex items-center justify-center h-12 w-12 rounded-md bg-primary-100 text-primary-600">
+                                <div class="flex items-center justify-center h-12 w-12 rounded-md bg-primary-900/50 text-primary-400 border border-primary-500/30">
                                     <i data-lucide="globe" class="h-6 w-6"></i>
                                 </div>
                             </div>
                             <div class="ml-4">
-                                <h4 class="text-lg leading-6 font-medium text-slate-900">Improve Data Accessibility</h4>
-                                <p class="mt-2 text-base text-slate-500">
+                                <h4 class="text-lg leading-6 font-medium text-white">Improve Data Accessibility</h4>
+                                <p class="mt-2 text-base text-slate-400">
                                     Structured LAS files can be indexed, searched, and integrated into geological databases.
                                 </p>
                             </div>
@@ -327,33 +349,33 @@
                     </div>
                 </div>
 
-                <div class="bg-slate-50 p-8 rounded-xl border border-slate-200">
-                    <h3 class="text-2xl font-bold text-slate-900 mb-6">System Architecture</h3>
-                    <p class="text-slate-600 mb-6">
+                <div class="bg-slate-900 p-8 rounded-xl border border-slate-700">
+                    <h3 class="text-2xl font-bold text-white mb-6">System Architecture</h3>
+                    <p class="text-slate-400 mb-6">
                         TifLAS is designed as a modular processing pipeline that integrates several technologies:
                     </p>
                     <ul class="space-y-3 mb-8">
-                        <li class="flex items-center text-slate-700">
+                        <li class="flex items-center text-slate-300">
                             <i data-lucide="layers" class="h-5 w-5 mr-3 text-primary-500"></i>
                             Image processing algorithms
                         </li>
-                        <li class="flex items-center text-slate-700">
+                        <li class="flex items-center text-slate-300">
                             <i data-lucide="layers" class="h-5 w-5 mr-3 text-primary-500"></i>
                             Computer vision for curve detection
                         </li>
-                        <li class="flex items-center text-slate-700">
+                        <li class="flex items-center text-slate-300">
                             <i data-lucide="layers" class="h-5 w-5 mr-3 text-primary-500"></i>
                             Data reconstruction and scaling
                         </li>
-                        <li class="flex items-center text-slate-700">
+                        <li class="flex items-center text-slate-300">
                             <i data-lucide="layers" class="h-5 w-5 mr-3 text-primary-500"></i>
                             LAS file generation and validation
                         </li>
                     </ul>
                     
-                    <div class="border-t border-slate-200 pt-6">
-                        <h4 class="text-lg font-bold text-slate-900 mb-2">Market Opportunity</h4>
-                        <p class="text-slate-600">
+                    <div class="border-t border-slate-700 pt-6">
+                        <h4 class="text-lg font-bold text-white mb-2">Market Opportunity</h4>
+                        <p class="text-slate-400">
                             Oil and gas companies possess vast archives of legacy log images. Digitizing this data represents a major opportunity to unlock previously inaccessible subsurface information and improve reservoir understanding without drilling new wells.
                         </p>
                     </div>

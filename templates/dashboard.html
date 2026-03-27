@@ -3,96 +3,141 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TIFF→LAS Digitizer</title>
+    <title>TurboTIFFLAS</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" crossorigin="anonymous"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #111827 0%, #0f172a 100%);
             min-height: 100vh;
             padding: 20px;
             overflow-x: hidden;
+            color: #f8fafc;
         }
 
         .container {
             max-width: 1400px;
             margin: 0 auto;
-            background: white;
+            background: #1e293b;
             border-radius: 12px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
             overflow: hidden;
+            border: 1px solid #334155;
         }
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
             color: white;
             padding: 30px;
-            text-align: center;
             position: relative;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
         .header h1 { font-size: 2.5em; margin-bottom: 10px; }
-        .header p { opacity: 0.9; font-size: 1.1em; }
-        .logout-btn {
+        .header p { opacity: 0.9; font-size: 1.1em; color: #94a3b8; }
+        
+        .header-actions {
             position: absolute;
             top: 20px;
             right: 20px;
-            background: rgba(255, 255, 255, 0.2);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .logout-btn {
+            background: rgba(255, 255, 255, 0.1);
             color: white;
             padding: 8px 15px;
-            border-radius: 5px;
+            border-radius: 999px;
             text-decoration: none;
             font-weight: bold;
             font-size: 0.9em;
             transition: background 0.2s;
+            border: 1px solid #334155;
         }
         .logout-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.2);
         }
         .las-viewer-btn {
-            position: absolute;
-            top: 20px;
-            right: 110px;
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
+            background: rgba(102, 126, 234, 0.2); /* match the green */
+            color: #667eea;
             padding: 8px 15px;
-            border-radius: 5px;
+            border-radius: 999px;
             text-decoration: none;
             font-weight: bold;
             font-size: 0.9em;
             transition: background 0.2s;
+            border: 1px solid #667eea;
         }
         .las-viewer-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
+            background: rgba(102, 126, 234, 0.3);
+        }
+        .account-btn {
+            background: rgba(99, 102, 241, 0.2);
+            color: #a5b4fc;
+            padding: 8px 15px;
+            border-radius: 999px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 0.9em;
+            transition: background 0.2s;
+            border: 1px solid #6366f1;
+        }
+        .account-btn:hover {
+            background: rgba(99, 102, 241, 0.3);
+        }
+        .dashboard-btn {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            padding: 8px 15px;
+            border-radius: 999px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 0.9em;
+            transition: background 0.2s;
+            border: 1px solid #10b981;
+        }
+        .dashboard-btn:hover {
+            background: rgba(16, 185, 129, 0.3);
         }
         .content { padding: 30px; }
         .step {
-            background: #f8f9fa;
+            background: #0f172a;
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 5px;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #F25B00; /* Orange accent */
+            border-top: 1px solid #334155;
+            border-right: 1px solid #334155;
+            border-bottom: 1px solid #334155;
         }
-        .step h2 { color: #667eea; margin-bottom: 15px; }
+        .step h2 { color: #FFA81C; margin-bottom: 15px; }
         .control-pane .step,
         .curve-pane .step {
             padding: 12px 16px;
             margin-bottom: 0;
+            background: #1e293b;
         }
         .control-pane .step h2,
         .curve-pane .step h2 {
             font-size: 1.1rem;
             margin-bottom: 10px;
+            color: #F8FAFC;
         }
         .upload-area {
             border: 3px dashed #667eea;
+            background: rgba(15, 23, 42, 0.5);
             border-radius: 8px;
             padding: 40px;
             text-align: center;
             cursor: pointer;
             transition: all 0.3s;
         }
-        .upload-area:hover { background: #f0f4ff; border-color: #764ba2; }
-        .upload-area.dragover { background: #e0e7ff; border-color: #667eea; }
+        .upload-area:hover { background: rgba(102, 126, 234, 0.1); border-color: #A4E033; }
+        .upload-area.dragover { background: rgba(102, 126, 234, 0.2); border-color: #667eea; }
         #imagePreview {
             max-width: 100%;
             border: 0;
@@ -107,46 +152,44 @@
             display: block;
             font-weight: 600;
             margin-bottom: 5px;
-            color: #333;
+            color: #e2e8f0; /* slate-200 */
         }
         .form-group input, .form-group select {
             width: 100%;
             padding: 10px;
-            border: 2px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-        }
-        .form-group input:focus, .form-group select:focus {
-            outline: none;
-            border-color: #667eea;
+            border: 1px solid #475569; /* slate-600 */
+            border-radius: 999px;
+            font-size: 1rem;
+            background-color: #1e293b; /* slate-800 */
+            color: #f8fafc; /* slate-50 */
         }
         .btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            padding: 12px 30px;
-            border-radius: 6px;
-            font-size: 16px;
-            font-weight: 600;
+            padding: 8px 15px;
+            border-radius: 999px;
             cursor: pointer;
-            transition: transform 0.2s;
+            font-weight: bold;
+            font-size: 0.9em;
+            transition: all 0.2s;
+            width: fit-content;
         }
-        .btn:hover { transform: translateY(-2px); }
+        .btn:hover { background: #764ba2; transform: translateY(-1px); }
         .btn:disabled {
             background: #ccc;
             cursor: not-allowed;
             transform: none;
         }
         .btn option {
-            color: #333 !important;
+            color: #e2e8f0 !important;
             background-color: #fff !important;
         }
         .scroll-bottom-btn {
             position: fixed;
             bottom: 20px;
             right: 20px;
-            padding: 8px 16px;
-            font-size: 14px;
+            
             z-index: 999;
         }
         .floating-controls {
@@ -305,6 +348,7 @@
             gap: 8px;
             padding: 6px 10px;
             background: #f5f5f5;
+            color: #334155;
             border-bottom: 1px solid #ddd;
             margin-bottom: 0;
             flex-wrap: wrap;
@@ -332,13 +376,14 @@
             font-size: 0.75rem;
             font-weight: 600;
             margin: 0;
+            color: #1e293b;
         }
         .viewer-controls input[type="range"] {
             width: 80px;
         }
         .viewer-controls .hint-text {
             font-size: 0.7rem;
-            color: #666;
+            color: #64748b;
         }
         .viewer-scroll {
             height: calc(100vh - 120px) !important;
@@ -377,7 +422,10 @@
             font-size: 0.8rem;
         }
         .control-pane #configStep {
-            background: #eef2ff;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 15px;
         }
         .calibration-tabs {
             padding: 12px 16px;
@@ -442,7 +490,12 @@
             gap: 8px;
             align-items: flex-start;
         }
-        .curve-actions > label,
+        .curve-actions > label {
+            flex: 0 0 100%;
+            color: #e2e8f0;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
         .curve-actions > input {
             flex: 0 0 100%;
         }
@@ -454,7 +507,7 @@
             gap: 4px;
         }
         .curve-action .btn {
-            width: 100%;
+            width: fit-content;
         }
         .config-layout {
             display: flex;
@@ -505,7 +558,7 @@
         }
         .hint-text {
             font-size: 0.85em;
-            color: #555;
+            color: #94a3b8;
         }
         .header-ocr-grid {
             display: flex;
@@ -524,7 +577,7 @@
             border: 1px solid #e5e7eb;
         }
         .header-ocr-tag-gr {
-            background: rgba(34, 197, 94, 0.12);
+            background: rgba(102, 126, 234, 0.12);
             border-color: #22c55e;
             color: #065f46;
         }
@@ -569,7 +622,7 @@
         .header-region-overlay {
             position: absolute;
             border: 3px dashed #22c55e; /* green */
-            background: rgba(34, 197, 94, 0.12);
+            background: rgba(102, 126, 234, 0.12);
             pointer-events: none;
             z-index: 25;
         }
@@ -646,7 +699,7 @@
             background: rgba(255, 255, 255, 0.85);
             padding: 1px 4px;
             font-size: 10px;
-            color: #333;
+            color: #e2e8f0;
         }
         .intro-backdrop {
             position: fixed;
@@ -677,15 +730,20 @@
         .intro-modal p {
             margin-bottom: 8px;
             font-size: 0.95em;
-            color: #333;
+            color: #334155;
         }
         .intro-modal ol {
             margin-left: 20px;
             margin-bottom: 10px;
+            color: #334155;
         }
         .intro-modal li {
             margin-bottom: 6px;
             font-size: 0.9em;
+            color: #334155;
+        }
+        .intro-modal .hint-text {
+            color: #64748b;
         }
         .intro-modal-actions {
             margin-top: 10px;
@@ -694,7 +752,7 @@
         .intro-modal-close {
             border: none;
             background: transparent;
-            color: #666;
+            color: #cbd5e1;
             float: right;
             font-size: 18px;
             cursor: pointer;
@@ -827,13 +885,44 @@
             font-size: 11px;
             color: #aaa;
         }
+            .mt-1 { margin-top: 4px; }
+        .mt-2 { margin-top: 8px; }
+        .mt-3 { margin-top: 12px; }
+        .mb-2 { margin-bottom: 8px; }
+        .p-1 { padding: 4px; }
+        .p-2 { padding: 8px; }
+        .p-0-5 { padding: 2px 4px; }
+        .w-full { width: 100%; }
+        .w-4 { width: 16px; }
+        .h-4 { height: 16px; }
+        .max-w-420 { max-width: 420px; }
+        .text-sm { font-size: 0.8rem; }
+        .text-xs { font-size: 0.75rem; }
+        .btn-sm { padding: 6px 12px; font-size: 0.85rem; }
+        .btn-xs { padding: 4px 10px; font-size: 0.8rem; }
+        .block { display: block; }
+        .font-semibold { font-weight: 600; }
+        .font-normal { font-weight: 400; }
+        .cursor-pointer { cursor: pointer; }
+        .select-none { user-select: none; }
+        .text-slate-200 { color: #e2e8f0; }
+        .text-slate-300 { color: #cbd5e1; }
+        .bg-slate-800 { background-color: #1e293b; }
+        .border-slate-700 { border-color: #334155; }
+        .rounded { border-radius: 4px; }
+        .flex-center { display: flex; align-items: center; }
+        .flex-wrap-center { display: flex; flex-wrap: wrap; align-items: center; }
+        .gap-1 { gap: 4px; }
+        .gap-2 { gap: 8px; }
+        .gap-3 { gap: 12px; }
+        .grid-2-col { display: grid; grid-template-columns: 1fr 1fr; }
     </style>
 </head>
 <body>
     <div id="introModalBackdrop" class="intro-backdrop hidden" onclick="closeIntroModal()">
         <div id="introModal" class="intro-modal" onclick="event.stopPropagation()">
             <button type="button" class="intro-modal-close" onclick="closeIntroModal()" aria-label="Close">×</button>
-            <h2>Welcome to TIFF→LAS Digitizer</h2>
+            <h2>Welcome to TurboTIFFLAS</h2>
             <p>This tool converts well log images (TIFF/PNG/JPG) into QuickSyn-style LAS 1.2 files. The AI suggests defaults, but you stay in control.</p>
             <ol>
                 <li><strong>Upload image:</strong> Drop or choose your log in Step 1. The preview appears in Step 2.</li>
@@ -842,9 +931,9 @@
                 <li><strong>Digitize:</strong> Click <em>Digitize &amp; Download LAS</em>. The app generates a QuickSyn-compatible LAS file (with 0.5 ft sampling when depth unit is Feet), runs basic checks, and shows depth/curve sanity warnings so you can review before using the file. For QuickSyn workflows, leave depth unit as <em>Feet (FT)</em>.</li>
                 <li><strong>Review AI hints:</strong> Step 4 shows what the AI saw (e.g. header text like "SONIC DT" and sample values) to help you judge if its guesses make sense.</li>
             </ol>
-            <p style="font-size: 0.85em; color: #555;">Tip: The AI never overwrites your choices. Treat suggestions as starting points, especially for depth anchors and curve labels.</p>
-            <p style="font-size: 0.85em; color: #555; margin-top: 4px;">More details (QuickSyn expectations, examples, troubleshooting):
-                <a href="https://github.com/Ch3fC0d3/tifflas#readme" target="_blank" rel="noopener noreferrer">see the full README on GitHub</a>.
+            <p class="hint-text">Tip: The AI never overwrites your choices. Treat suggestions as starting points, especially for depth anchors and curve labels.</p>
+            <p class="hint-text mt-1">More details (QuickSyn expectations, examples, troubleshooting):
+                <a href="https://github.com/Ch3fC0d3/TurboTIFFLAS#readme" target="_blank" rel="noopener noreferrer">see the full README on GitHub</a>.
             </p>
             <div class="intro-modal-actions">
                 <button type="button" class="btn" style="padding: 8px 16px; font-size: 0.9em;" onclick="closeIntroModal()">Got it</button>
@@ -854,13 +943,17 @@
 
     <div class="container">
         <div class="header">
-            <h1>TIFF→LAS Digitizer</h1>
-            <p>Convert legacy well log images to standard LAS files using Computer Vision</p>
-            <a href="/las_viewer" class="las-viewer-btn" onclick="openLasViewerWithData(event)">📈 LAS Viewer</a>
-            <a href="/logout" class="logout-btn">Logout</a>
+            <img src="/static/images/logo.svg" alt="TifLAS Logo" style="height: 140px; margin-bottom: 8px; display: inline-block; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.25));">
+            <p style="font-size: 1.15em; letter-spacing: 0.3px; opacity: 0.92;">Convert legacy well log images to standard LAS files using Computer Vision</p>
+            <div class="header-actions">
+                <a href="/dashboard" class="dashboard-btn">🏠 Dashboard</a>
+                <a href="/las_viewer" class="las-viewer-btn" onclick="openLasViewerWithData(event)">📈 LAS Viewer</a>
+                <a href="/account" class="account-btn">Manage Billing</a>
+                <a href="/logout" class="logout-btn">Logout</a>
+            </div>
         </div>
         <div class="content">
-            <button type="button" class="btn" style="margin-top: 10px; padding: 8px 16px; font-size: 0.9em;" onclick="openIntroModal()">❓ How to use this tool</button>
+            <button type="button" class="btn" onclick="openIntroModal()">❓ How to use this tool</button>
         </div>
 
         <div class="content">
@@ -870,14 +963,14 @@
                 <h2>Step 1: Upload Image</h2>
                 <div class="upload-area" id="uploadArea">
                     <p>📁 Drag & drop your TIFF/PNG/JPG here or click to browse</p>
-                    <p style="font-size: 0.9em; color: #666; margin-top: 10px;">⚠️ Max file size: 100MB</p>
+                    <p class="text-sm text-slate-300 mt-2">⚠️ Max file size: 100MB</p>
                     <input type="file" id="fileInput" accept="image/*" style="display:none">
                 </div>
                 <div id="imageInfo" class="hidden"></div>
             </div>
 
             <!-- Status Messages (positioned above workspace for visibility) -->
-            <div id="statusArea" style="margin-bottom: 10px;"></div>
+            <div id="statusArea" class="mb-2"></div>
 
             <!-- Main workspace: left viewer, right configuration -->
             <div id="workspace" class="workspace hidden">
@@ -905,20 +998,16 @@
                                 <button type="button" class="btn" onclick="setZoom(1.0)">100%</button>
                                 <button type="button" class="btn" onclick="setZoom(2.0)">200%</button>
                                 <button type="button" class="btn" onclick="setZoom(4.0)">400%</button>
-                                <button type="button" class="btn" onclick="setZoom(8.0)">800%</button>
-                                <button type="button" class="btn" onclick="setZoom(12.0)">1200%</button>
-                                <button type="button" class="btn" onclick="setZoom(16.0)">1600%</button>
-                                <button type="button" class="btn" onclick="setZoom(20.0)">2000%</button>
                                 <input type="range" id="zoomSlider" min="50" max="4800" value="100" step="5" oninput="setZoom(this.value / 100)" style="width: 120px;" />
                                 <span id="zoomLabel" class="hint-text">100%</span>
                             </div>
 
                             <div class="control-section">
-                                <label>Curve:</label>
-                                <select id="overlayCurveSelect" onchange="onOverlayCurveTargetChange()" style="max-width: 140px; font-size: 0.75rem; padding: 2px 6px;">
+                                <label class="text-slate-300">Curve:</label>
+                                <select id="overlayCurveSelect" class="bg-slate-800 text-slate-200 border-slate-600 rounded" onchange="onOverlayCurveTargetChange()" style="max-width: 140px; font-size: 0.75rem; padding: 2px 6px;">
                                     <option value="__all_unlocked__">All (unlocked)</option>
                                 </select>
-                                <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-weight: 400;" title="Lock this curve's overlay settings">
+                                <label class="flex-center gap-1 cursor-pointer font-normal" title="Lock this curve's overlay settings">
                                     <input type="checkbox" id="overlayCurveLock" onchange="toggleOverlayCurveLock()"> Lock
                                 </label>
                             </div>
@@ -949,25 +1038,25 @@
                             </div>
 
                             <div class="control-section">
-                                <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-weight: 400;">
+                                <label class="flex-center gap-1 cursor-pointer font-normal">
                                     <input type="checkbox" id="showLine" checked onchange="toggleOverlayVisibility()"> Line
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-weight: 400;" title="Show only the continuous line">
+                                <label class="flex-center gap-1 cursor-pointer font-normal" title="Show only the continuous line">
                                     <input type="checkbox" id="mainLineOnly" onchange="toggleOverlayVisibility()"> Main only
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-weight: 400;">
+                                <label class="flex-center gap-1 cursor-pointer font-normal">
                                     <input type="checkbox" id="showPoints" checked onchange="toggleOverlayVisibility()"> Pts
                                 </label>
                             </div>
 
                             <div class="control-section">
-                                <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-weight: 400;">
+                                <label class="flex-center gap-1 cursor-pointer font-normal">
                                     <input type="checkbox" id="highContrastOverlay" checked onchange="toggleOverlayVisibility()"> High contrast
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-weight: 400;">
+                                <label class="flex-center gap-1 cursor-pointer font-normal">
                                     <input type="checkbox" id="crispOverlay" onchange="toggleOverlayVisibility()"> Crisp
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 3px; cursor: pointer; font-weight: 400;">
+                                <label class="flex-center gap-1 cursor-pointer font-normal">
                                     <input type="checkbox" id="compactOverlay" onchange="toggleOverlayVisibility()"> Compact
                                 </label>
                             </div>
@@ -999,7 +1088,7 @@
                             </div>
                             <div class="toolbar-divider"></div>
                             <div class="toolbar-group" style="display: flex; align-items: center; padding: 0 4px;">
-                                <label style="font-size: 0.75em; display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; color: #333;" title="Move neighbors with drag">
+                                <label class="flex-center gap-1 cursor-pointer text-xs select-none text-slate-200" title="Move neighbors with drag">
                                     <input type="checkbox" id="smoothEditToggle"> Smooth
                                 </label>
                             </div>
@@ -1025,72 +1114,73 @@
                     <div id="calibPanel-main" class="tab-panel">
                         <div class="step hidden" id="previewStep">
                             <h2>Step 2: Image Preview</h2>
-                            <p style="color: #666; margin-top: 10px;">
+                            <p class="text-slate-300 mt-2">
                                 📐 Image dimensions: <span id="imageDims"></span>
                             </p>
-                            <p id="mousePixelReadout" style="color: #666; font-size: 0.85em; margin-top: 4px;">
+                            <p id="mousePixelReadout" class="hint-text mt-1">
                                 Mouse pixel: (move over image)
                             </p>
-                            <p style="color: #666; font-size: 0.85em; margin-top: 6px;">
+                            <p class="hint-text mt-1">
                                 Tip: Use the <strong>Top/Bottom depth</strong> fields below and the <strong>Top/Bottom pixel</strong> fields in Step 3 to align the depth guidelines with the printed scale; the mouse readout updates from those values.
                             </p>
-                            <div class="form-group" style="margin-top: 8px; max-width: 420px;">
+                            <div class="form-group mt-2 max-w-420">
                                 <label>Header / key (optional)</label>
-                                <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px;">
-                                    <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="beginHeaderSelection()">Capture header/key from image</button>
-                                    <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="clearHeaderSelection()">Clear header/key</button>
+                                <div class="flex-wrap-center mt-1">
+                                    <button type="button" class="btn btn-sm bg-blue-600 hover:bg-blue-500 text-white" onclick="autoExtractHeader()">Auto-Extract Header Info</button>
+                                    <button type="button" class="btn btn-sm" onclick="beginHeaderSelection()">Manual Selection</button>
+                                    <button type="button" class="btn btn-sm" onclick="clearHeaderSelection()">Clear</button>
                                 </div>
                                 <div class="hint-text" id="headerSelectionSummary">No header captured. Curve config will use defaults.</div>
-                                <div class="hint-text"><strong>To capture details:</strong> Click and drag a box over the <strong>entire header</strong> (including Company/Well info AND scale labels).</div>
+                                <div class="hint-text"><strong>Auto-Extract:</strong> Automatically finds the header at the top of the image.<br><strong>Manual Selection:</strong> Click and drag a box over the <strong>entire header</strong>.</div>
                                 
                                 <!-- Header Metadata Inputs -->
-                                <div id="headerMetadataFields" style="margin-top: 12px; padding: 10px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px;">
-                                    <label style="margin-bottom: 8px; display: block; font-weight: 600;">Header Details (for LAS export)</label>
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                <div id="headerMetadataFields" class="bg-slate-800 border-slate-700 rounded p-2 mt-3">
+                                    <label class="block font-semibold mb-2">Header Details (for LAS export)</label>
+                                    <div class="grid-2-col gap-2">
                                         <div>
-                                            <label for="headerWell" style="font-size: 0.8em;">Well Name</label>
-                                            <input type="text" id="headerWell" placeholder="WELL" style="width: 100%; padding: 4px;">
+                                            <label for="headerWell" class="text-sm">Well Name</label>
+                                            <input type="text" id="headerWell" placeholder="WELL" class="w-full p-1">
                                         </div>
                                         <div>
-                                            <label for="headerComp" style="font-size: 0.8em;">Company</label>
-                                            <input type="text" id="headerComp" placeholder="COMPANY" style="width: 100%; padding: 4px;">
+                                            <label for="headerComp" class="text-sm">Company</label>
+                                            <input type="text" id="headerComp" placeholder="COMPANY" class="w-full p-1">
                                         </div>
                                         <div>
-                                            <label for="headerApi" style="font-size: 0.8em;">API Number</label>
-                                            <input type="text" id="headerApi" placeholder="API" style="width: 100%; padding: 4px;">
+                                            <label for="headerApi" class="text-sm">API Number</label>
+                                            <input type="text" id="headerApi" placeholder="API" class="w-full p-1">
                                         </div>
                                         <div>
-                                            <label for="headerDate" style="font-size: 0.8em;">Date</label>
-                                            <input type="text" id="headerDate" placeholder="DATE" style="width: 100%; padding: 4px;">
+                                            <label for="headerDate" class="text-sm">Date</label>
+                                            <input type="text" id="headerDate" placeholder="DATE" class="w-full p-1">
                                         </div>
                                         <div>
-                                            <label for="headerFld" style="font-size: 0.8em;">Field</label>
-                                            <input type="text" id="headerFld" placeholder="FIELD" style="width: 100%; padding: 4px;">
+                                            <label for="headerFld" class="text-sm">Field</label>
+                                            <input type="text" id="headerFld" placeholder="FIELD" class="w-full p-1">
                                         </div>
                                         <div>
-                                            <label for="headerLoc" style="font-size: 0.8em;">Location</label>
-                                            <input type="text" id="headerLoc" placeholder="LOCATION" style="width: 100%; padding: 4px;">
+                                            <label for="headerLoc" class="text-sm">Location</label>
+                                            <input type="text" id="headerLoc" placeholder="LOCATION" class="w-full p-1">
                                         </div>
                                         <div>
-                                            <label for="headerCnty" style="font-size: 0.8em;">County</label>
-                                            <input type="text" id="headerCnty" placeholder="COUNTY" style="width: 100%; padding: 4px;">
+                                            <label for="headerCnty" class="text-sm">County</label>
+                                            <input type="text" id="headerCnty" placeholder="COUNTY" class="w-full p-1">
                                         </div>
                                         <div>
-                                            <label for="headerState" style="font-size: 0.8em;">State</label>
-                                            <input type="text" id="headerState" placeholder="STATE" style="width: 100%; padding: 4px;">
+                                            <label for="headerState" class="text-sm">State</label>
+                                            <input type="text" id="headerState" placeholder="STATE" class="w-full p-1">
                                         </div>
                                         <div>
-                                            <label for="headerProv" style="font-size: 0.8em;">Province</label>
-                                            <input type="text" id="headerProv" placeholder="PROVINCE" style="width: 100%; padding: 4px;">
+                                            <label for="headerProv" class="text-sm">Province</label>
+                                            <input type="text" id="headerProv" placeholder="PROVINCE" class="w-full p-1">
                                         </div>
                                         <div>
-                                            <label for="headerSrvc" style="font-size: 0.8em;">Service Co.</label>
-                                            <input type="text" id="headerSrvc" placeholder="SERVICE CO" style="width: 100%; padding: 4px;">
+                                            <label for="headerSrvc" class="text-sm">Service Co.</label>
+                                            <input type="text" id="headerSrvc" placeholder="SERVICE CO" class="w-full p-1">
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="form-group" style="margin-top: 8px; max-width: 420px;">
+                            <div class="form-group mt-2 max-w-420">
                                 <label>Depth values</label>
                                 <div class="depth-row">
                                     <div class="field">
@@ -1103,11 +1193,11 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="form-group" style="margin-top: 8px; max-width: 420px;">
+                            <div class="form-group mt-2 max-w-420">
                                 <label>Select log panel</label>
-                                <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px;">
-                                    <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="beginPanelSelection()">Select panel from image</button>
-                                    <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="clearPanelSelection()">Clear selection</button>
+                                <div class="flex-wrap-center mt-1">
+                                    <button type="button" class="btn btn-sm" onclick="beginPanelSelection()">Select panel from image</button>
+                                    <button type="button" class="btn btn-sm" onclick="clearPanelSelection()">Clear selection</button>
                                 </div>
                                 <div class="hint-text" id="selectionSummary">No panel selected. Using full image width and depth.</div>
                                 <div class="hint-text">Click and drag directly on the image to draw a selection box around the log copy you want to digitize.</div>
@@ -1133,7 +1223,7 @@
                                     </div>
                                 </div>
 
-                                <div class="grid" style="margin-top: 8px;">
+                                <div class="grid mt-2">
                                     <div class="field">
                                         <label for="depthUnit">Depth unit</label>
                                         <select id="depthUnit">
@@ -1143,9 +1233,9 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="form-group" style="margin-top: 4px; max-width: 420px;">
-                                <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.85em;" onclick="cropToWorkingPanel()">✂️ Crop to working panel</button>
-                                <div class="hint-text" style="margin-top: 4px;">
+                            <div class="form-group mt-1 max-w-420">
+                                <button type="button" class="btn btn-sm" onclick="cropToWorkingPanel()">✂️ Crop to working panel</button>
+                                <div class="hint-text" class="mt-1">
                                     After selecting a panel and setting depth, crop so only that depth window is used as the working TIFF.
                                 </div>
                             </div>
@@ -1161,9 +1251,9 @@
                                     <label>Curve Configuration</label>
                                     <div class="curve-actions">
                                         <label for="numCurves">Number of Curves (max 6)</label>
-                                        <input type="number" id="numCurves" value="3" min="1" max="6">
+                                        <input type="number" id="numCurves" value="3" min="0" max="6">
                                         
-                                        <label for="snapThreshold" style="margin-top: 8px;">Snap Threshold (1.2 = 20% brighter)</label>
+                                        <label for="snapThreshold" class="mt-2">Snap Threshold (1.2 = 20% brighter)</label>
                                         <input type="number" id="snapThreshold" value="1.20" step="0.05" min="0.1" max="5.0" title="Lower (<1.0) = Greedier, Higher (>1.0) = Stricter">
 
                                         <div class="curve-action">
@@ -1176,8 +1266,8 @@
                                 </div>
 
                                 <div id="curvesContainer"></div>
-                                <div id="curveScaleSummary" class="hint-text" style="margin-top: 8px;"></div>
-                                <div class="form-group" style="margin-top: 8px;">
+                                <div id="curveScaleSummary" class="hint-text mt-2"></div>
+                                <div class="form-group" class="mt-2">
                                     <label>Curve summary (list view)</label>
                                     <div class="curve-list-wrapper">
                                         <div id="curveListView" class="curve-list-summary hint-text"></div>
@@ -1202,35 +1292,51 @@
                                     </div>
                                 </div>
 
-                                <div class="form-group" style="margin-top: 10px; max-width: 420px;">
+                                <div class="form-group mt-2 max-w-420">
                                     <label>Manual curve edits (after digitize)</label>
-                                    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                                    <div class="flex-wrap-center">
                                         <select id="editCurveSelect" style="max-width: 140px;">
                                             <option value="">(select curve)</option>
                                         </select>
-                                        <button class="btn" type="button" id="toggleEditModeBtn" onclick="toggleCurveEditMode()" style="padding: 4px 10px; font-size: 0.8em;">
+                                        <button class="btn" type="button" id="toggleEditModeBtn" onclick="toggleCurveEditMode()" class="btn-xs">
                                             Enable edit mode
                                         </button>
-                                        <span id="editModeStatus" class="hint-text" style="font-size: 0.8em;">Edit mode off</span>
+                                        <span id="editModeStatus" class="hint-text" class="text-sm">Edit mode off</span>
                                     </div>
-                                    <div style="display: flex; gap: 12px; align-items: center; margin-top: 6px;">
-                                        <div style="display: flex; align-items: center; gap: 6px;">
-                                            <input type="checkbox" id="snapToCurveToggle" style="cursor: pointer; width: 16px; height: 16px;">
-                                            <label for="snapToCurveToggle" style="font-size: 0.8em; cursor: pointer;">
+                                    <div class="flex-center gap-3 mt-1">
+                                        <div class="flex-center gap-2">
+                                            <input type="checkbox" id="snapToCurveToggle" class="cursor-pointer w-4 h-4">
+                                            <label for="snapToCurveToggle" class="text-sm cursor-pointer">
                                                 Snap to curve (AI assist)
                                             </label>
-                                            <label for="snapMaxDistanceSelect" style="font-size: 0.8em; cursor: pointer;">
+                                            <label for="snapMaxDistanceSelect" class="text-sm cursor-pointer">
                                                 strength:
                                             </label>
-                                            <select id="snapMaxDistanceSelect" style="font-size: 0.8em; padding: 2px 4px;">
+                                            <select id="snapMaxDistanceSelect" class="text-sm p-0-5">
                                                 <option value="8">tight</option>
                                                 <option value="15" selected>normal</option>
                                                 <option value="25">loose</option>
                                             </select>
                                         </div>
                                     </div>
-                                    <div class="hint-text" style="font-size: 0.8em; margin-top: 4px;">
+                                <div class="hint-text" style="font-size: 0.8em; margin-top: 4px;">
                                         Drag points to adjust. Snap-to-curve helps find the nearest colored line. Ctrl+Z to undo.
+                                    </div>
+                                    <div class="flex-wrap-center mt-2">
+                                        <input type="text" id="blackSegmentNote" placeholder="note e.g. right shoulder missed" style="min-width: 260px; flex: 1 1 260px; font-size: 0.8em; padding: 5px 8px;">
+                                        <button class="btn" type="button" id="saveBadBlackSegmentBtn" onclick="saveBadBlackSegment()" class="btn-xs">
+                                            Save bad black segment
+                                        </button>
+                                        <button class="btn" type="button" id="saveCorrectedBlackSegmentBtn" onclick="saveCorrectedBlackSegment()" class="btn-xs">
+                                            Save corrected black segment
+                                        </button>
+                                        <span class="hint-text" style="font-size: 0.78em;">
+                                            Save corrected after editing for a stronger training label.
+                                        </span>
+                                        <label for="autoBlackCaptureToggle" class="hint-text" style="font-size: 0.78em; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                            <input type="checkbox" id="autoBlackCaptureToggle" checked onchange="setAutoBlackCaptureEnabled(this.checked)" style="cursor: pointer;">
+                                            Auto-snapshot black on digitize/download
+                                        </label>
                                     </div>
                                 </div>
                             </div>
@@ -1250,9 +1356,9 @@
                     <h3>Ask AI about this log</h3>
                     <p class="hint-text">The AI sees OCR text and LAS curve statistics for this image. You can ask things like "Which curve is GR vs DT?" or "Do any curves look unreasonable?"</p>
                     <textarea id="aiChatQuestion" rows="3" style="width: 100%; margin-top: 6px;" placeholder="Type a question about the current log (after running Digitize)..."></textarea>
-                    <button type="button" class="btn" style="margin-top: 6px;" onclick="askAiAboutLog()">Ask AI</button>
+                    <button type="button" class="btn mt-1" onclick="askAiAboutLog()">Ask AI</button>
                     <button type="button" class="btn" style="margin-top: 6px; margin-left: 8px;" onclick="askAiWhichCurveIsWhich()">Ask: which curve is which?</button>
-                    <div id="aiChatOutput" style="margin-top: 8px;"></div>
+                    <div id="aiChatOutput" class="mt-2"></div>
                 </div>
             </div>
         </div>
@@ -1298,6 +1404,12 @@
         let lastCurveTraces = null;      // last curve_traces overlay returned from backend
         let curveIndexToTraceKey = null; // { [curveIndex:number]: string } mapping from UI curve index to curve_traces key
         let editUndoStack = [];          // stack of { curveKey, idx, oldValue, oldTraceX } for Ctrl+Z
+        let lastDigitizeRequestConfig = null;
+        let lastDigitizePreviewFilters = null;
+        let lastDigitizeHeaderMetadata = null;
+        let autoBlackCaptureEnabled = true;
+        let autoBlackCaptureSessionId = null;
+        let autoBlackCaptureCompleted = {};
 
         let pinnedDepthIndices = new Map();
         let lastMouseImgX = null;
@@ -1485,8 +1597,8 @@
             }
         }
 
-        const DEPTH_SESSION_KEY = 'tifflas_depth_config_v1';
-        const INTRO_SESSION_KEY = 'tifflas_intro_seen_v1';
+        const DEPTH_SESSION_KEY = 'turbotifflas_depth_config_v1';
+        const INTRO_SESSION_KEY = 'turbotifflas_intro_seen_v1';
 
         function updateDisplayBaseScale() {
             try {
@@ -1600,9 +1712,10 @@
         let overlayPointSize = 0.8;
         let overlaySettingsByCurveId = {};
 
-        const OVERLAY_SETTINGS_STORAGE_KEY = 'tifflas.overlaySettingsByCurveId.v1';
-        const OVERLAY_ACTIVE_STORAGE_KEY = 'tifflas.overlayActiveTarget.v1';
-        const OVERLAY_UI_STORAGE_KEY = 'tifflas.overlayUiState.v1';
+        const OVERLAY_SETTINGS_STORAGE_KEY = 'turbotifflas.overlaySettingsByCurveId.v1';
+        const OVERLAY_ACTIVE_STORAGE_KEY = 'turbotifflas.overlayActiveTarget.v1';
+        const OVERLAY_UI_STORAGE_KEY = 'turbotifflas.overlayUiState.v1';
+        const AUTO_BLACK_CAPTURE_STORAGE_KEY = 'turbotifflas.autoBlackCapture.v1';
 
         function saveOverlaySettingsToStorage() {
             try {
@@ -1946,9 +2059,9 @@
             const tracks = (typeof getTrackCalibrationsSnapshot === 'function')
                 ? getTrackCalibrationsSnapshot()
                 : null;
-            const applyToCurve = (curveId) => {
+            const applyToCurve = (curveId, force = false) => {
                 const s = getOverlaySettingsForCurve(curveId);
-                if (s.locked) return false;
+                if (!force && s.locked) return false;
                 if (Number.isFinite(next.lineWidth)) s.lineWidth = next.lineWidth;
                 if (Number.isFinite(next.lineLength)) s.lineLength = next.lineLength;
                 if (Number.isFinite(next.lineHeight)) s.lineHeight = next.lineHeight;
@@ -1963,19 +2076,67 @@
                 } else {
                     applyToCurve(target);
                 }
-            } else if (tracks && Array.isArray(tracks)) {
-                for (const t of tracks) {
-                    if (!t || !t.id) continue;
-                    applyToCurve(t.id);
+            } else {
+                // Apply to all known traces (union of tracks, traces, and existing settings)
+                const allIds = new Set();
+                
+                // 1. From Configured Tracks
+                if (tracks && Array.isArray(tracks)) {
+                    for (const t of tracks) {
+                        if (t && t.id) allIds.add(String(t.id).trim());
+                    }
                 }
-            } else if (lastCurveTraces && typeof lastCurveTraces === 'object') {
-                for (const k of Object.keys(lastCurveTraces)) {
-                    applyToCurve(k);
+                
+                // 2. From Rendered Traces
+                if (lastCurveTraces && typeof lastCurveTraces === 'object') {
+                    for (const k of Object.keys(lastCurveTraces)) {
+                        if (k) allIds.add(String(k).trim());
+                    }
+                }
+
+                // 3. From Existing Settings (History)
+                if (overlaySettingsByCurveId && typeof overlaySettingsByCurveId === 'object') {
+                    for (const k of Object.keys(overlaySettingsByCurveId)) {
+                        if (k) allIds.add(String(k).trim());
+                    }
+                }
+
+                console.log('[updateOverlaySize] Target is All. Updating curves:', Array.from(allIds));
+                console.log('[updateOverlaySize] Global settings:', { 
+                    lineWidth: overlayLineWidth, 
+                    lineLength: overlayLineLength, 
+                    lineHeight: overlayLineHeight, 
+                    pointSize: overlayPointSize 
+                });
+
+                let updatedCount = 0;
+                for (const id of allIds) {
+                    try {
+                        // Force update for "All" selection, ignoring individual locks
+                        const updated = applyToCurve(id, true);
+                        if (updated) updatedCount++;
+                    } catch (err) {
+                        console.warn(`[updateOverlaySize] Error updating curve ${id}:`, err);
+                    }
+                }
+                // Optional: show status to confirm batch update
+                const idList = Array.from(allIds).join(', ');
+                if (updatedCount > 0) {
+                    // showStatus(`Updated ${updatedCount} curves: ${idList}`, 'info');
+                } else {
+                    console.warn('[updateOverlaySize] No curves were updated despite "All" selection.');
                 }
             }
 
-            if (lastCurveTraces) {
-                renderCurveTraceOverlays(lastCurveTraces);
+            try {
+                if (lastCurveTraces) {
+                    renderCurveTraceOverlays(lastCurveTraces);
+                } else if (window.lastCurveTraces) {
+                    renderCurveTraceOverlays(window.lastCurveTraces);
+                }
+            } catch (err) {
+                console.error('Render failed in updateOverlaySize:', err);
+                showStatus('Overlay render error: ' + err.message, 'error');
             }
 
             saveOverlaySettingsToStorage();
@@ -2020,10 +2181,47 @@
             window.location.href = '/las_viewer';
         }
 
+        function saveAutoBlackCapturePreference() {
+            try {
+                if (!window || !window.localStorage) return;
+                window.localStorage.setItem(AUTO_BLACK_CAPTURE_STORAGE_KEY, autoBlackCaptureEnabled ? '1' : '0');
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        function setAutoBlackCaptureEnabled(enabled, options = {}) {
+            autoBlackCaptureEnabled = enabled !== false;
+            const toggle = document.getElementById('autoBlackCaptureToggle');
+            if (toggle) toggle.checked = !!autoBlackCaptureEnabled;
+            if (!options || options.persist !== false) {
+                saveAutoBlackCapturePreference();
+            }
+        }
+
+        function loadAutoBlackCapturePreference() {
+            let enabled = true;
+            try {
+                if (window && window.localStorage) {
+                    const raw = window.localStorage.getItem(AUTO_BLACK_CAPTURE_STORAGE_KEY);
+                    if (raw === '0') enabled = false;
+                }
+            } catch (e) {
+                // ignore
+            }
+            setAutoBlackCaptureEnabled(enabled, { persist: false });
+        }
+
+        function resetAutoBlackCaptureSession() {
+            autoBlackCaptureSessionId = `auto_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            autoBlackCaptureCompleted = {};
+        }
+
         // ── Initialization ─────────────────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', () => {
             loadOverlaySettingsFromStorage();
             loadOverlayUiStateFromStorage();
+            loadAutoBlackCapturePreference();
             populateOverlayCurveSelectFromTracks();
             if (typeof syncToolbarCurveLockButton === 'function') syncToolbarCurveLockButton();
         });
@@ -2038,7 +2236,10 @@
         // Depth anchor buttons have been removed; depth configuration is now
         // driven directly by numeric inputs and AI suggestions.
 
+        let currentTabId = 'calibPanel-main';
+
         function setCalibrationTab(targetId) {
+            currentTabId = targetId;
             const panels = ['calibPanel-main', 'calibPanel-curves'];
             panels.forEach((id) => {
                 const el = document.getElementById(id);
@@ -2059,6 +2260,9 @@
                     btn.classList.remove('active');
                 }
             });
+
+            // Update ribbons visibility
+            refreshTrackOverlaysFromCurves();
         }
 
         function beginPanelSelection() {
@@ -2131,18 +2335,21 @@
         }
 
         function updateHeaderCaptureState() {
-            const headerBtn = document.querySelector('button[onclick="beginHeaderSelection()"]');
+            const autoBtn = document.querySelector('button[onclick="autoExtractHeader()"]');
+            const manualBtn = document.querySelector('button[onclick="beginHeaderSelection()"]');
             const clearBtn = document.querySelector('button[onclick="clearHeaderSelection()"]');
             const summaryEl = document.getElementById('headerSelectionSummary');
 
             if (headerCaptureEnabled) {
-                if (headerBtn) headerBtn.disabled = false;
+                if (autoBtn) autoBtn.disabled = false;
+                if (manualBtn) manualBtn.disabled = false;
                 if (clearBtn) clearBtn.disabled = false;
                 if (summaryEl && (!headerRegion || !headerTracks)) {
-                    summaryEl.textContent = 'Ready to capture header. Draw a box over the header strip.';
+                    summaryEl.textContent = 'Ready to capture header. Use Auto-Extract or draw a box.';
                 }
             } else {
-                if (headerBtn) headerBtn.disabled = true;
+                if (autoBtn) autoBtn.disabled = true;
+                if (manualBtn) manualBtn.disabled = true;
                 if (clearBtn) clearBtn.disabled = true;
                 if (summaryEl) {
                     summaryEl.textContent = 'Header capture disabled until you crop to a panel.';
@@ -2347,6 +2554,8 @@
             const numCurvesInput = document.getElementById('numCurves');
             const numCurves = numCurvesInput ? (parseInt(numCurvesInput.value) || 0) : 0;
             const tracks = [];
+            const usedIds = {};
+
             for (let i = 0; i < numCurves; i++) {
                 const leftPxEl = document.getElementById(`leftPx${i}`);
                 const rightPxEl = document.getElementById(`rightPx${i}`);
@@ -2374,14 +2583,25 @@
                 const unitEl = document.getElementById(`unit${i}`);
                 const lasUnitEl = document.getElementById(`lasUnit${i}`);
 
-                const id = (lasMnemonicEl && lasMnemonicEl.value
+                let baseId = (lasMnemonicEl && lasMnemonicEl.value
                     ? lasMnemonicEl.value.trim()
                     : (typeEl && typeEl.value ? typeEl.value : `CURVE${i + 1}`));
+                
+                baseId = baseId.toUpperCase();
+                let uniqueId = baseId;
+                
+                if (usedIds[baseId]) {
+                    const n = usedIds[baseId] + 1;
+                    usedIds[baseId] = n;
+                    uniqueId = `${baseId}_${n}`;
+                } else {
+                    usedIds[baseId] = 1;
+                }
 
                 tracks.push({
-                    id: id.toUpperCase(),
+                    id: uniqueId,
                     index: i,
-                    name: typeEl && typeEl.value ? typeEl.value : id,
+                    name: typeEl && typeEl.value ? typeEl.value : baseId,
                     displayName: nameEl && nameEl.value ? nameEl.value : '',
                     leftX: leftXAdj,
                     rightX: rightXAdj,
@@ -2444,6 +2664,397 @@
 
             if (!foundKey) return null;
             return { key: foundKey, entry: lastDigitizedCurves[foundKey] };
+        }
+
+        function getCurrentPreviewFilters() {
+            const invertBtn = document.getElementById('btnFilterInvert');
+            const contrastBtn = document.getElementById('btnFilterContrast');
+            return {
+                invert: !!(invertBtn && invertBtn.classList.contains('active')),
+                contrast: !!(contrastBtn && contrastBtn.classList.contains('active')),
+            };
+        }
+
+        function syncHeaderMetadataFromInputs() {
+            if (!headerMetadata || typeof headerMetadata !== 'object') {
+                headerMetadata = {};
+            }
+            const getVal = (id) => {
+                const el = document.getElementById(id);
+                return el ? el.value.trim() : '';
+            };
+
+            headerMetadata.well = getVal('headerWell') || headerMetadata.well;
+            headerMetadata.comp = getVal('headerComp') || headerMetadata.comp;
+            headerMetadata.company = headerMetadata.comp;
+            headerMetadata.api = getVal('headerApi') || headerMetadata.api;
+            headerMetadata.date = getVal('headerDate') || headerMetadata.date;
+            headerMetadata.fld = getVal('headerFld') || headerMetadata.fld;
+            headerMetadata.field = headerMetadata.fld;
+            headerMetadata.loc = getVal('headerLoc') || headerMetadata.loc;
+            headerMetadata.location = headerMetadata.loc;
+            headerMetadata.county = getVal('headerCnty') || headerMetadata.county;
+            headerMetadata.state = getVal('headerState') || headerMetadata.state;
+            headerMetadata.prov = getVal('headerProv') || headerMetadata.prov;
+            headerMetadata.province = headerMetadata.prov;
+            headerMetadata.srvc = getVal('headerSrvc') || headerMetadata.srvc;
+            headerMetadata.service = headerMetadata.srvc;
+            return headerMetadata;
+        }
+
+        function buildDigitizeConfigFromInputs() {
+            const depthCfg = getDepthConfigFromInputs();
+            if (!depthCfg) return null;
+
+            const config = {
+                depth: {
+                    top_px: depthCfg.top_px,
+                    bottom_px: depthCfg.bottom_px,
+                    top_depth: depthCfg.top_depth,
+                    bottom_depth: depthCfg.bottom_depth,
+                    unit: depthCfg.unit,
+                },
+                global_options: {
+                    downsample: 1,
+                    blur: 3,
+                    min_run: 2,
+                    smooth_window: 5,
+                    snap_threshold: parseFloat(document.getElementById('snapThreshold')?.value || 1.20),
+                    null: -999.25,
+                },
+                curves: [],
+            };
+
+            const numCurves = parseInt(document.getElementById('numCurves')?.value || '0', 10);
+            const usedMnemonics = {};
+            for (let i = 0; i < numCurves; i++) {
+                const type = document.getElementById(`type${i}`)?.value || '';
+                const displayName = document.getElementById(`name${i}`)?.value || '';
+                const displayUnit = document.getElementById(`unit${i}`)?.value || '';
+                const lasMnemonicInput = document.getElementById(`lasMnemonic${i}`)?.value.trim() || '';
+                const lasUnitInput = document.getElementById(`lasUnit${i}`)?.value.trim() || '';
+
+                const defaults = curveTypeDefaults[type] || {};
+                const lasMnemonic = lasMnemonicInput || (defaults.mnemonic || (displayName ? displayName.toUpperCase() : `CURVE${i + 1}`));
+                const lasUnit = lasUnitInput || (defaults.unit || displayUnit);
+
+                let mnemonicKey = String(lasMnemonic || '').toUpperCase().trim();
+                if (!mnemonicKey) mnemonicKey = `CURVE${i + 1}`;
+                if (usedMnemonics[mnemonicKey]) {
+                    const n = usedMnemonics[mnemonicKey] + 1;
+                    usedMnemonics[mnemonicKey] = n;
+                    mnemonicKey = `${mnemonicKey}_${n}`;
+                } else {
+                    usedMnemonics[mnemonicKey] = 1;
+                }
+
+                config.curves.push({
+                    type: type,
+                    display_name: displayName,
+                    display_unit: displayUnit,
+                    name: mnemonicKey,
+                    unit: lasUnit,
+                    las_mnemonic: mnemonicKey,
+                    las_unit: lasUnit,
+                    left_px: parseInt(document.getElementById(`leftPx${i}`)?.value || '0', 10),
+                    right_px: parseInt(document.getElementById(`rightPx${i}`)?.value || '0', 10),
+                    left_value: parseFloat(document.getElementById(`leftVal${i}`)?.value || '0'),
+                    right_value: parseFloat(document.getElementById(`rightVal${i}`)?.value || '0'),
+                    mode: document.getElementById(`mode${i}`)?.value || 'black',
+                });
+            }
+
+            return config;
+        }
+
+        function findCurveConfigById(curves, curveId) {
+            if (!Array.isArray(curves) || !curveId) return null;
+            const target = String(curveId).trim().toUpperCase();
+            for (const curve of curves) {
+                if (!curve || typeof curve !== 'object') continue;
+                const names = [
+                    curve.las_mnemonic,
+                    curve.name,
+                    curve.display_name,
+                    curve.type,
+                ].filter(Boolean).map(v => String(v).trim().toUpperCase());
+                if (names.includes(target)) return curve;
+            }
+            return null;
+        }
+
+        function resolveBlackCaptureCurve(config) {
+            if (!config || !Array.isArray(config.curves)) {
+                return { error: 'Please digitize the image first so there is a curve config to save.' };
+            }
+
+            const blackCurves = config.curves.filter(c => String(c && c.mode || '').trim().toLowerCase() === 'black');
+            if (!blackCurves.length) {
+                return { error: 'No black curve is configured in the current job.' };
+            }
+
+            const requestedIds = [];
+            let sawNonBlackSelection = null;
+            const overlaySel = document.getElementById('overlayCurveSelect');
+            if (editCurveDataKey) requestedIds.push(String(editCurveDataKey).trim().toUpperCase());
+            if (editCurveId) requestedIds.push(String(editCurveId).trim().toUpperCase());
+            if (overlaySel && overlaySel.value && overlaySel.value !== '__all_unlocked__') {
+                requestedIds.push(String(overlaySel.value).trim().toUpperCase());
+            }
+
+            for (const requestedId of requestedIds) {
+                const curveCfg = findCurveConfigById(config.curves, requestedId);
+                if (!curveCfg) continue;
+                if (String(curveCfg.mode || '').trim().toLowerCase() !== 'black') {
+                    sawNonBlackSelection = requestedId;
+                    continue;
+                }
+                return {
+                    curveId: String(curveCfg.las_mnemonic || curveCfg.name || requestedId).trim().toUpperCase(),
+                    curveCfg,
+                };
+            }
+
+            if (blackCurves.length === 1) {
+                const curveCfg = blackCurves[0];
+                return {
+                    curveId: String(curveCfg.las_mnemonic || curveCfg.name || 'BLACK').trim().toUpperCase(),
+                    curveCfg,
+                };
+            }
+
+            if (sawNonBlackSelection) {
+                return { error: `Selected curve ${sawNonBlackSelection} is not black. Pick the black curve in the Curve dropdown first.` };
+            }
+            return { error: 'Select the specific black curve in the Curve dropdown before saving.' };
+        }
+
+        function resolveTraceKeyForCurveId(curveId) {
+            if (!curveId || !lastCurveTraces || typeof lastCurveTraces !== 'object') {
+                return null;
+            }
+            if (Array.isArray(lastCurveTraces[curveId])) return curveId;
+            const upper = String(curveId).trim().toUpperCase();
+            for (const key of Object.keys(lastCurveTraces)) {
+                if (String(key).trim().toUpperCase() === upper && Array.isArray(lastCurveTraces[key])) {
+                    return key;
+                }
+            }
+            return null;
+        }
+
+        function collectBlackCaptureSelections(config, options = {}) {
+            const selectedOnly = !!options.selectedOnly;
+            if (!config || !Array.isArray(config.curves)) {
+                return { error: 'Please digitize the image first so there is a curve config to save.' };
+            }
+            if (!lastCurveTraces || typeof lastCurveTraces !== 'object') {
+                return { error: 'Please run Digitize first so there is a trace to save.' };
+            }
+
+            const blackCurves = config.curves.filter(c => String(c && c.mode || '').trim().toLowerCase() === 'black');
+            if (!blackCurves.length) {
+                return { error: 'No black curve is configured in the current job.' };
+            }
+
+            const candidates = [];
+            if (selectedOnly) {
+                const selection = resolveBlackCaptureCurve(config);
+                if (!selection || selection.error) {
+                    return { error: selection && selection.error ? selection.error : 'Could not determine which black curve to save.' };
+                }
+                candidates.push(selection);
+            } else {
+                for (const curveCfg of blackCurves) {
+                    const curveId = String(curveCfg.las_mnemonic || curveCfg.name || curveCfg.type || 'BLACK').trim().toUpperCase();
+                    candidates.push({ curveId, curveCfg });
+                }
+            }
+
+            const selections = [];
+            for (const candidate of candidates) {
+                const curveId = String(candidate.curveId || '').trim().toUpperCase();
+                const curveCfg = candidate.curveCfg;
+                if (!curveId || !curveCfg) continue;
+
+                ensureTracePointsHaveDepthIndex(curveId);
+                const traceKey = resolveTraceKeyForCurveId(curveId) || curveId;
+                const tracePoints = Array.isArray(lastCurveTraces[traceKey]) ? lastCurveTraces[traceKey] : null;
+                if (!tracePoints || !tracePoints.length) {
+                    if (selectedOnly) {
+                        return { error: `No current trace points found for ${curveId}.` };
+                    }
+                    continue;
+                }
+
+                const traceDebug = (window.lastCurveTraceDebug && typeof window.lastCurveTraceDebug === 'object')
+                    ? (window.lastCurveTraceDebug[traceKey] || window.lastCurveTraceDebug[curveId] || null)
+                    : null;
+                const digitizedEntry = findDigitizedCurveEntry(curveId) || findDigitizedCurveEntry(traceKey);
+
+                selections.push({
+                    curveId,
+                    traceKey,
+                    curveCfg,
+                    tracePoints,
+                    traceDebug,
+                    digitizedEntry: digitizedEntry ? digitizedEntry.entry : null,
+                });
+            }
+
+            if (!selections.length) {
+                return { error: selectedOnly ? 'No black trace points are available to save.' : 'No black trace snapshots were available for auto-capture.' };
+            }
+
+            return { selections };
+        }
+
+        function buildBlackCapturePayload(selection, options = {}) {
+            const config = options.config || lastDigitizeRequestConfig || buildDigitizeConfigFromInputs();
+            return {
+                image: uploadedImage,
+                config: config,
+                preview_filters: lastDigitizePreviewFilters || getCurrentPreviewFilters(),
+                header_metadata: lastDigitizeHeaderMetadata || syncHeaderMetadataFromInputs() || null,
+                curve_id: selection.curveId,
+                trace_key: selection.traceKey,
+                curve_config: selection.curveCfg,
+                trace_points: selection.tracePoints,
+                trace_debug: selection.traceDebug,
+                digitized_curve: selection.digitizedEntry || null,
+                capture_source: options.captureSource || 'dashboard',
+                capture_event: options.captureEvent || null,
+                capture_session_id: options.captureSessionId || null,
+                auto_capture: !!options.autoCapture,
+                download_format: options.downloadFormat || null,
+                status: options.status || 'needs_review',
+                notes: options.notes || null,
+            };
+        }
+
+        async function postBlackCapturePayload(payload) {
+            const response = await fetch('/api/save_bad_black_segment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (e) {
+                data = null;
+            }
+
+            if (!response.ok || !data || !data.success) {
+                const msg = (data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${response.status}`;
+                throw new Error(msg);
+            }
+            return data;
+        }
+
+        async function autoCaptureBlackSegments(eventName, options = {}) {
+            if (!autoBlackCaptureEnabled) return;
+            if (!uploadedImage || !lastCurveTraces || typeof lastCurveTraces !== 'object') return;
+
+            const sessionId = autoBlackCaptureSessionId || `auto_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            autoBlackCaptureSessionId = sessionId;
+            if (autoBlackCaptureCompleted[eventName]) return;
+
+            const config = lastDigitizeRequestConfig || buildDigitizeConfigFromInputs();
+            const collected = collectBlackCaptureSelections(config, { selectedOnly: false });
+            if (!collected || !Array.isArray(collected.selections) || !collected.selections.length) {
+                return;
+            }
+
+            autoBlackCaptureCompleted[eventName] = true;
+            let saved = 0;
+            const noteText = options.notes || (eventName === 'digitize_post'
+                ? 'Automatic black snapshot after digitize.'
+                : 'Automatic black snapshot at download.');
+
+            for (const selection of collected.selections) {
+                try {
+                    const payload = buildBlackCapturePayload(selection, {
+                        config,
+                        captureSource: options.captureSource || `auto_black_capture_${eventName}`,
+                        captureEvent: eventName,
+                        captureSessionId: sessionId,
+                        autoCapture: true,
+                        downloadFormat: options.downloadFormat || null,
+                        status: 'needs_review',
+                        notes: noteText,
+                    });
+                    await postBlackCapturePayload(payload);
+                    saved += 1;
+                } catch (err) {
+                    console.warn(`[auto black capture] ${eventName} failed for ${selection.curveId}:`, err);
+                }
+            }
+
+            if (saved > 0) {
+                console.info(`[auto black capture] ${eventName}: saved ${saved} capture(s)`);
+            }
+        }
+
+        async function saveBlackSegment(kind) {
+            const isCorrected = String(kind || '').trim().toLowerCase() === 'corrected';
+            const btn = document.getElementById(isCorrected ? 'saveCorrectedBlackSegmentBtn' : 'saveBadBlackSegmentBtn');
+            if (btn) btn.disabled = true;
+            try {
+                if (!uploadedImage) {
+                    showStatus('Please upload an image first.', 'info');
+                    return;
+                }
+                if (!lastCurveTraces || typeof lastCurveTraces !== 'object') {
+                    showStatus('Please run Digitize first so there is a trace to save.', 'info');
+                    return;
+                }
+
+                const config = lastDigitizeRequestConfig || buildDigitizeConfigFromInputs();
+                if (!config) {
+                    showStatus('Could not resolve the current digitize config. Please run Digitize again first.', 'error');
+                    return;
+                }
+
+                const collected = collectBlackCaptureSelections(config, { selectedOnly: true });
+                if (!collected || collected.error) {
+                    showStatus(collected && collected.error ? collected.error : 'Could not determine which black curve to save.', 'info');
+                    return;
+                }
+
+                const selection = collected.selections[0];
+                const curveId = selection.curveId;
+                const noteEl = document.getElementById('blackSegmentNote');
+                const noteText = noteEl ? String(noteEl.value || '').trim() : '';
+                const payload = buildBlackCapturePayload(selection, {
+                    config,
+                    captureSource: isCorrected ? 'dashboard_save_corrected_black_segment' : 'dashboard_save_bad_black_segment',
+                    captureEvent: isCorrected ? 'manual_corrected_save' : 'manual_bad_save',
+                    status: isCorrected ? 'corrected' : 'needs_review',
+                    notes: noteText || null,
+                });
+                const data = await postBlackCapturePayload(payload);
+
+                const rows = Number.isFinite(data.trace_rows) ? ` (${data.trace_rows} traced rows)` : '';
+                const kindLabel = isCorrected ? 'corrected black segment' : 'bad black segment';
+                showStatus(`Saved ${kindLabel} for ${curveId}${rows}. Capture ID: ${data.capture_id}`, 'success');
+                if (noteEl && noteText) {
+                    noteEl.value = '';
+                }
+            } catch (err) {
+                showStatus(`Failed to save ${isCorrected ? 'corrected' : 'bad'} black segment: ${err.message}`, 'error');
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        async function saveBadBlackSegment() {
+            return saveBlackSegment('bad');
+        }
+
+        async function saveCorrectedBlackSegment() {
+            return saveBlackSegment('corrected');
         }
 
         function applyCurveXShiftForCurve(index) {
@@ -5376,6 +5987,48 @@
             }
         }
 
+        async function autoExtractHeader() {
+            if (editMode) {
+                showStatus('Turn off manual curve edit mode before extracting header.', 'info');
+                return;
+            }
+            if (!headerCaptureEnabled) {
+                showStatus('Header capture is disabled until you crop to a panel.', 'info');
+                return;
+            }
+            if (!uploadedImage || !imageWidth || !imageHeight) {
+                showStatus('No image loaded.', 'error');
+                return;
+            }
+
+            // Estimate header region as the top 25% of the image, or up to topPx if it's set
+            const topPxInput = document.getElementById('topPx');
+            let bottomBound = Math.floor(imageHeight * 0.25);
+            
+            if (topPxInput && topPxInput.value) {
+                const topPxVal = parseFloat(topPxInput.value);
+                if (topPxVal > 50) { // If there's a reasonable top panel selected
+                    bottomBound = topPxVal;
+                }
+            }
+
+            headerRegion = {
+                left_px: 0,
+                right_px: imageWidth,
+                top_px: 0,
+                bottom_px: bottomBound
+            };
+            
+            renderHeaderRegionOverlay();
+            
+            const summaryEl = document.getElementById('headerSelectionSummary');
+            if (summaryEl) {
+                summaryEl.textContent = `Auto-extracting header from top of image...`;
+            }
+            
+            await aiCaptureHeaderFromRegion();
+        }
+
         async function aiCaptureHeaderFromRegion() {
             if (!uploadedImage || !imageWidth || !imageHeight || !headerRegion) {
                 showStatus('No header region selected.', 'error');
@@ -5421,25 +6074,10 @@
                     return;
                 }
 
-                const tracks = data.tracks || [];
-                if (!tracks.length) {
-                    showStatus('No tracks detected in header region. Try selecting a larger area.', 'warning');
-                    const summaryEl = document.getElementById('headerSelectionSummary');
-                    if (summaryEl) {
-                        summaryEl.textContent = 'No tracks found in header. Try again.';
-                    }
-                    headerRegion = null;
-                    clearHeaderRegionOverlay();
-                    return;
-                }
-
-                // Store the detected header tracks
-                headerTracks = tracks;
-
-                // Store extracted header metadata (company, well, field, etc.) if provided
+                // Even if there are no tracks, we might still have header metadata.
+                // We should process it before returning due to lack of tracks.
                 headerMetadata = (data && data.header_metadata) ? data.header_metadata : null;
 
-                // Populate input fields if metadata exists
                 if (headerMetadata) {
                     if (headerMetadata.well) document.getElementById('headerWell').value = headerMetadata.well;
                     if (headerMetadata.comp) document.getElementById('headerComp').value = headerMetadata.comp;
@@ -5457,6 +6095,29 @@
                     if (headerMetadata.srvc) document.getElementById('headerSrvc').value = headerMetadata.srvc;
                     if (headerMetadata.service) document.getElementById('headerSrvc').value = headerMetadata.service;
                 }
+
+                const tracks = data.tracks || [];
+                if (!tracks.length) {
+                    if (headerMetadata) {
+                        showStatus('Found header info but no curve tracks. Try a larger manual selection if needed.', 'info');
+                        const summaryEl = document.getElementById('headerSelectionSummary');
+                        if (summaryEl) {
+                            summaryEl.textContent = 'Populated header fields, but no tracks detected.';
+                        }
+                    } else {
+                        showStatus('No tracks or info detected in header region. Try selecting a larger area.', 'warning');
+                        const summaryEl = document.getElementById('headerSelectionSummary');
+                        if (summaryEl) {
+                            summaryEl.textContent = 'No tracks found in header. Try again.';
+                        }
+                        headerRegion = null;
+                        clearHeaderRegionOverlay();
+                    }
+                    return;
+                }
+
+                // Store the detected header tracks
+                headerTracks = tracks;
 
                 // Update summary
                 const summaryEl = document.getElementById('headerSelectionSummary');
@@ -6483,7 +7144,7 @@
                             <input type="color" id="pointColor${i}" value="#00ffff">
                         </div>
                     </div>
-                    <div class="form-group" style="margin-top: 8px;">
+                    <div class="form-group" class="mt-2">
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem;">
                             <input type="checkbox" id="showTrace${i}" checked>
                             Show overlay trace
@@ -7011,8 +7672,14 @@
             }
             const denomX = Math.max(1, imageWidth - 1);
 
-            const topDom = 0;
-            const heightDom = rect.height;
+            let topDom = 0;
+            let heightDom = rect.height;
+            const cfg = typeof getDepthConfigFromInputs === 'function' ? getDepthConfigFromInputs() : null;
+            if (cfg && Number.isFinite(cfg.top_px) && Number.isFinite(cfg.bottom_px) && cfg.bottom_px > cfg.top_px) {
+                const scaleY = rect.height / imageHeight;
+                topDom = cfg.top_px * scaleY;
+                heightDom = (cfg.bottom_px - cfg.top_px) * scaleY;
+            }
 
             clearTrackOverlays();
 
@@ -7082,6 +7749,11 @@
         }
 
         function refreshTrackOverlaysFromCurves() {
+            if (currentTabId !== 'calibPanel-curves') {
+                clearTrackOverlays();
+                return;
+            }
+
             const numCurvesInput = document.getElementById('numCurves');
             if (!numCurvesInput) {
                 clearTrackOverlays();
@@ -7457,6 +8129,88 @@
             // Calculate scale from image coords to base canvas coords
             const scaleX = rect.width / w;
             const scaleY = rect.height / h;
+            const jumpBreakDomPx = Math.max(28, rect.width * 0.032);
+            const jumpBreakSlope = 10.0;
+            const jumpBreakMinYDomPx = 26.0;
+            const jumpBreakMaxRowGap = 4.0;
+            const jumpBreakMinImgDx = Math.max(10.0, w * 0.012);
+            const jumpBreakImgSlope = 6.5;
+            const shelfNeighborImgDx = Math.max(5.0, w * 0.0065);
+            const shelfNeighborRowGap = 3.0;
+            const shelfPlateauStepImgDx = Math.max(8.0, w * 0.010);
+            const steppedPlateauNeighborImgDx = Math.max(4.0, w * 0.0055);
+            const steppedPlateauStepImgDx = Math.max(14.0, w * 0.018);
+            const _imgDx = (a, b) => Math.abs(Number(b[0]) - Number(a[0]));
+            const _imgDy = (a, b) => Math.abs(Number(b[1]) - Number(a[1]));
+            const _imgSignedDx = (a, b) => Number(b[0]) - Number(a[0]);
+            const isImplausibleJump = (p0, p1) => {
+                if (!Array.isArray(p0) || !Array.isArray(p1) || p0.length < 2 || p1.length < 2) return false;
+                const dxImg = _imgDx(p0, p1);
+                const dyImg = _imgDy(p0, p1);
+                const dxDom = Math.abs((Number(p1[0]) - Number(p0[0])) * scaleX);
+                const dyDom = Math.abs((Number(p1[1]) - Number(p0[1])) * scaleY);
+                if (!Number.isFinite(dxImg) || !Number.isFinite(dyImg) || !Number.isFinite(dxDom) || !Number.isFinite(dyDom)) return false;
+                if (dyDom >= jumpBreakMinYDomPx) return false;
+                if (dyImg > jumpBreakMaxRowGap) return false;
+                if (dxDom <= jumpBreakDomPx || dxImg <= jumpBreakMinImgDx) return false;
+                return dxDom > Math.max(jumpBreakDomPx, dyDom * jumpBreakSlope) &&
+                    (dxImg / Math.max(1.0, dyImg)) > jumpBreakImgSlope;
+            };
+            const isShelfTransition = (pts, leftIdx, rightIdx) => {
+                if (!Array.isArray(pts) || leftIdx <= 0 || rightIdx >= pts.length - 1) return false;
+                const pPrev = pts[leftIdx];
+                const pCurr = pts[rightIdx];
+                const pBefore = pts[leftIdx - 1];
+                const pAfter = pts[rightIdx + 1];
+                if (!Array.isArray(pPrev) || !Array.isArray(pCurr) || !Array.isArray(pBefore) || !Array.isArray(pAfter)) return false;
+
+                const stepDx = _imgDx(pPrev, pCurr);
+                const prevDx = _imgDx(pBefore, pPrev);
+                const nextDx = _imgDx(pCurr, pAfter);
+                const prevDy = _imgDy(pBefore, pPrev);
+                const nextDy = _imgDy(pCurr, pAfter);
+                if (!Number.isFinite(stepDx) || !Number.isFinite(prevDx) || !Number.isFinite(nextDx)) return false;
+                if (stepDx < shelfPlateauStepImgDx) return false;
+                if (prevDy > shelfNeighborRowGap || nextDy > shelfNeighborRowGap) return false;
+                return prevDx <= shelfNeighborImgDx && nextDx <= shelfNeighborImgDx;
+            };
+            const isSteppedPlateauTransition = (pts, leftIdx, rightIdx) => {
+                if (!Array.isArray(pts) || leftIdx < 0 || rightIdx >= pts.length) return false;
+                const pL = pts[leftIdx];
+                const pR = pts[rightIdx];
+                if (!Array.isArray(pL) || !Array.isArray(pR)) return false;
+
+                const currDx = _imgSignedDx(pL, pR);
+                const currAbsDx = Math.abs(currDx);
+                const currDy = _imgDy(pL, pR);
+                if (!Number.isFinite(currDx) || currAbsDx < steppedPlateauStepImgDx || currDy > shelfNeighborRowGap) return false;
+
+                const sameSign = (a, b) => Math.sign(a) !== 0 && Math.sign(a) === Math.sign(b);
+
+                if (leftIdx >= 2 && rightIdx + 1 < pts.length) {
+                    const pLL = pts[leftIdx - 1];
+                    const pRR = pts[rightIdx + 1];
+                    if (Array.isArray(pLL) && Array.isArray(pRR)) {
+                        const prevDx = _imgSignedDx(pLL, pL);
+                        const nextDx = _imgSignedDx(pR, pRR);
+                        const prevAbsDx = Math.abs(prevDx);
+                        const nextAbsDx = Math.abs(nextDx);
+                        const prevDy = _imgDy(pLL, pL);
+                        const nextDy = _imgDy(pR, pRR);
+
+                        const prevPlateau = prevAbsDx <= steppedPlateauNeighborImgDx && prevDy <= shelfNeighborRowGap;
+                        const nextPlateau = nextAbsDx <= steppedPlateauNeighborImgDx && nextDy <= shelfNeighborRowGap;
+                        const prevStep = prevAbsDx >= steppedPlateauStepImgDx && prevDy <= shelfNeighborRowGap && sameSign(prevDx, currDx);
+                        const nextStep = nextAbsDx >= steppedPlateauStepImgDx && nextDy <= shelfNeighborRowGap && sameSign(nextDx, currDx);
+
+                        if ((prevPlateau && nextStep) || (prevStep && nextPlateau)) {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            };
 
             ctx.lineJoin = 'round';
             ctx.lineCap = 'round';
@@ -7468,12 +8222,36 @@
                 : null;
 
             const curveNames = Object.keys(curveTraces);
+            const globalTarget = getOverlayTargetCurveId();
+            const isAllUnlocked = globalTarget === '__all_unlocked__';
+
             for (const name of curveNames) {
                 const points = curveTraces[name] || [];
                 if (!points.length) continue;
 
                 ensureOverlaySettingsForCurve(name);
                 const curveSettings = getOverlaySettingsForCurve(name);
+                const isLocked = !!(curveSettings && curveSettings.locked);
+
+                // If "All (unlocked)" is selected, strictly enforce the global slider values for rendering
+                // regardless of individual lock state. This matches user expectation that the
+                // global slider controls everything visible.
+                
+                let effectiveLineWidth = (curveSettings && Number.isFinite(curveSettings.lineWidth)) ? curveSettings.lineWidth : (overlayLineWidth || 2);
+                let effectiveLineLength = (curveSettings && Number.isFinite(curveSettings.lineLength)) ? curveSettings.lineLength : (overlayLineLength || 12);
+                let effectiveLineHeight = (curveSettings && Number.isFinite(curveSettings.lineHeight)) ? curveSettings.lineHeight : (overlayLineHeight || 2);
+                let effectivePointSize = (curveSettings && Number.isFinite(curveSettings.pointSize)) ? curveSettings.pointSize : (overlayPointSize || 0.8);
+
+                if (isAllUnlocked) {
+                    if (Number.isFinite(overlayLineWidth)) effectiveLineWidth = overlayLineWidth;
+                    if (Number.isFinite(overlayLineLength)) effectiveLineLength = overlayLineLength;
+                    if (Number.isFinite(overlayLineHeight)) effectiveLineHeight = overlayLineHeight;
+                    if (Number.isFinite(overlayPointSize)) effectivePointSize = overlayPointSize;
+                }
+
+                // Debug log to verify thickness application
+                // console.log(`[renderCurveTraceOverlays] Curve: ${name}, AllUnlocked: ${isAllUnlocked}, GlobalWidth: ${overlayLineWidth}, EffectiveWidth: ${effectiveLineWidth}`);
+
                 const curveStyle = (curveSettings && curveSettings.style) ? String(curveSettings.style) : defaultStyle;
                 const compactOverlay = curveStyle === 'compact';
                 const crispOverlay = curveStyle === 'crisp';
@@ -7544,9 +8322,9 @@
                 if (showLine) {
                     // Main line thickness comes from the Line slider.
                     // Stick thickness comes from the Line height slider (fallback to Line).
-                    const mainThickness = Math.max(0.1, (curveSettings && Number.isFinite(curveSettings.lineWidth)) ? curveSettings.lineWidth : (overlayLineWidth || 4));
-                    const stickThickness = Math.max(0.1, (curveSettings && Number.isFinite(curveSettings.lineHeight)) ? curveSettings.lineHeight : ((overlayLineHeight || mainThickness)));
-                    const stickLen = Math.max(2.0, (curveSettings && Number.isFinite(curveSettings.lineLength)) ? curveSettings.lineLength : (overlayLineLength || stickThickness * 6));
+                    const mainThickness = Math.max(0.1, effectiveLineWidth);
+                    const stickThickness = Math.max(0.1, effectiveLineHeight);
+                    const stickLen = Math.max(2.0, effectiveLineLength);
                     const halfStick = stickLen * 0.5;
 
                     // First, draw a thin connecting polyline to guarantee continuity.
@@ -7563,7 +8341,11 @@
                         for (let i = 0; i < sortedPoints.length; i++) {
                             const xDom = (sortedPoints[i][0] * scaleX);
                             const yDom = (sortedPoints[i][1] * scaleY);
-                            if (!started) {
+                            const shouldBreak = i > 0 &&
+                                isImplausibleJump(sortedPoints[i - 1], sortedPoints[i]) &&
+                                !isShelfTransition(sortedPoints, i - 1, i) &&
+                                !isSteppedPlateauTransition(sortedPoints, i - 1, i);
+                            if (!started || shouldBreak) {
                                 ctx.moveTo(xDom, yDom);
                                 started = true;
                             } else {
@@ -7583,7 +8365,7 @@
                     // Densify: fill long gaps with interpolated stick samples so the stroke looks continuous.
                     // We keep the original editable points as-is; this only affects rendering density.
                     const stickSamples = [];
-                    const desiredDomStep = 3.0; // px between sticks on screen (any direction)
+                    const desiredDomStep = 2.4; // px between sticks on screen (any direction)
                     const maxStickSamples = 12000;
                     for (let i = 0; i < sortedPoints.length && stickSamples.length < maxStickSamples; i++) {
                         const p0 = sortedPoints[i];
@@ -7614,6 +8396,11 @@
                         const dy = y1 - y0;
                         const domDx = dx * scaleX;
                         const domDy = dy * scaleY;
+                        if (
+                            isImplausibleJump(p0, p1) &&
+                            !isShelfTransition(sortedPoints, i, i + 1) &&
+                            !isSteppedPlateauTransition(sortedPoints, i, i + 1)
+                        ) continue;
                         const domDist = Math.hypot(domDx, domDy);
                         if (domDist <= desiredDomStep) continue;
 
@@ -7812,14 +8599,18 @@
                 }
             }
 
-            // Render ML predicted curves in magenta
+            // Render ML predicted curves (make them responsive to settings too)
             if (window.mlPredictedCurves && Array.isArray(window.mlPredictedCurves)) {
                 ctx.setLineDash([]);
+                
+                // Use global settings for ML curves since they don't have individual config entries
+                const mlMainThickness = (Number.isFinite(overlayLineWidth) ? overlayLineWidth : 2);
+                const mlPointRadius = (Number.isFinite(overlayPointSize) ? overlayPointSize : 0.8);
+
                 for (const mlCurve of window.mlPredictedCurves) {
                     if (!mlCurve || !mlCurve.points || !mlCurve.points.length) continue;
                     
                     const mlColor = mlCurve.color || '#FF00FF';
-                    const mlLineWidth = 2;
                     
                     // Draw line connecting all points
                     ctx.beginPath();
@@ -7833,18 +8624,19 @@
                         }
                     }
                     ctx.strokeStyle = mlColor;
-                    ctx.lineWidth = mlLineWidth;
+                    ctx.lineWidth = mlMainThickness;
                     ctx.globalAlpha = 0.8;
                     ctx.stroke();
                     ctx.globalAlpha = 1.0;
                     
-                    // Draw points every 50 pixels for visibility
+                    // Draw points every few pixels for visibility
+                    // Scale step based on point count to avoid clutter
                     const pointStep = Math.max(1, Math.floor(mlCurve.points.length / 100));
                     for (let i = 0; i < mlCurve.points.length; i += pointStep) {
                         const xDom = (mlCurve.points[i].x * scaleX) - viewLeft;
                         const yDom = (mlCurve.points[i].y * scaleY) - viewTop;
                         ctx.beginPath();
-                        ctx.arc(xDom, yDom, 2, 0, Math.PI * 2);
+                        ctx.arc(xDom, yDom, mlPointRadius, 0, Math.PI * 2);
                         ctx.fillStyle = mlColor;
                         ctx.fill();
                     }
@@ -8041,106 +8833,24 @@
             startProcessingTimer();
 
             try {
-                const depthCfg = getDepthConfigFromInputs();
-                if (!depthCfg) {
+                const config = buildDigitizeConfigFromInputs();
+                if (!config) {
                     showStatus('Please enter valid top/bottom pixels and depth values before digitizing.', 'error');
                     if (btn) btn.disabled = false;
                     return;
                 }
-
-                const config = {
-                    depth: {
-                        top_px: depthCfg.top_px,
-                        bottom_px: depthCfg.bottom_px,
-                        top_depth: depthCfg.top_depth,
-                        bottom_depth: depthCfg.bottom_depth,
-                        unit: depthCfg.unit,
-                    },
-                    global_options: {
-                        downsample: 1,
-                        blur: 3,
-                        min_run: 2,
-                        smooth_window: 5,
-                        snap_threshold: parseFloat(document.getElementById('snapThreshold')?.value || 1.20),
-                        null: -999.25,
-                    },
-                    curves: [],
-                };
-
-                const numCurves = parseInt(document.getElementById('numCurves').value);
-                const usedMnemonics = {};
-                for (let i = 0; i < numCurves; i++) {
-                    const type = document.getElementById(`type${i}`).value;
-                    const displayName = document.getElementById(`name${i}`).value;
-                    const displayUnit = document.getElementById(`unit${i}`).value;
-                    const lasMnemonicInput = document.getElementById(`lasMnemonic${i}`).value.trim();
-                    const lasUnitInput = document.getElementById(`lasUnit${i}`).value.trim();
-
-                    const defaults = curveTypeDefaults[type] || {};
-                    const lasMnemonic = lasMnemonicInput || (defaults.mnemonic || (displayName ? displayName.toUpperCase() : `CURVE${i + 1}`));
-                    const lasUnit = lasUnitInput || (defaults.unit || displayUnit);
-
-                    // Ensure unique LAS mnemonic (required for LAS + avoids trace-key collisions)
-                    let mnemonicKey = String(lasMnemonic || '').toUpperCase().trim();
-                    if (!mnemonicKey) mnemonicKey = `CURVE${i + 1}`;
-                    if (usedMnemonics[mnemonicKey]) {
-                        const n = usedMnemonics[mnemonicKey] + 1;
-                        usedMnemonics[mnemonicKey] = n;
-                        mnemonicKey = `${mnemonicKey}_${n}`;
-                        const mnEl = document.getElementById(`lasMnemonic${i}`);
-                        if (mnEl) mnEl.value = mnemonicKey;
-                    } else {
-                        usedMnemonics[mnemonicKey] = 1;
-                    }
-
-                    config.curves.push({
-                        type: type,
-                        display_name: displayName,
-                        display_unit: displayUnit,
-                        name: mnemonicKey,
-                        unit: lasUnit,
-                        las_mnemonic: mnemonicKey,
-                        las_unit: lasUnit,
-                        left_px: parseInt(document.getElementById(`leftPx${i}`).value),
-                        right_px: parseInt(document.getElementById(`rightPx${i}`).value),
-                        left_value: parseFloat(document.getElementById(`leftVal${i}`).value),
-                        right_value: parseFloat(document.getElementById(`rightVal${i}`).value),
-                        mode: document.getElementById(`mode${i}`).value,
-                    });
-                }
+                const depthCfg = config.depth;
 
                 saveDepthConfigToSession();
                 renderDepthOverlays();
 
-                const invertBtn = document.getElementById('btnFilterInvert');
-                const contrastBtn = document.getElementById('btnFilterContrast');
-                const previewFilters = {
-                    invert: !!(invertBtn && invertBtn.classList.contains('active')),
-                    contrast: !!(contrastBtn && contrastBtn.classList.contains('active')),
-                };
+                const previewFilters = getCurrentPreviewFilters();
 
                 // Scrape header metadata from inputs (user edits override AI detection)
-                if (!headerMetadata) headerMetadata = {};
-                const getVal = (id) => {
-                    const el = document.getElementById(id);
-                    return el ? el.value.trim() : '';
-                };
-                
-                headerMetadata.well = getVal('headerWell') || headerMetadata.well;
-                headerMetadata.comp = getVal('headerComp') || headerMetadata.comp;
-                headerMetadata.company = headerMetadata.comp; // sync
-                headerMetadata.api = getVal('headerApi') || headerMetadata.api;
-                headerMetadata.date = getVal('headerDate') || headerMetadata.date;
-                headerMetadata.fld = getVal('headerFld') || headerMetadata.fld;
-                headerMetadata.field = headerMetadata.fld;
-                headerMetadata.loc = getVal('headerLoc') || headerMetadata.loc;
-                headerMetadata.location = headerMetadata.loc;
-                headerMetadata.county = getVal('headerCnty') || headerMetadata.county;
-                headerMetadata.state = getVal('headerState') || headerMetadata.state;
-                headerMetadata.prov = getVal('headerProv') || headerMetadata.prov;
-                headerMetadata.province = headerMetadata.prov;
-                headerMetadata.srvc = getVal('headerSrvc') || headerMetadata.srvc;
-                headerMetadata.service = headerMetadata.srvc;
+                syncHeaderMetadataFromInputs();
+                lastDigitizeRequestConfig = JSON.parse(JSON.stringify(config));
+                lastDigitizePreviewFilters = JSON.parse(JSON.stringify(previewFilters));
+                lastDigitizeHeaderMetadata = headerMetadata ? JSON.parse(JSON.stringify(headerMetadata)) : null;
 
                 const response = await fetch('/digitize', {
                     method: 'POST',
@@ -8224,6 +8934,12 @@
 
                     if (data.curve_traces && typeof data.curve_traces === 'object') {
                         const traces = data.curve_traces;
+                        window.lastCurveTraceDebug = (data.curve_trace_debug && typeof data.curve_trace_debug === 'object')
+                            ? data.curve_trace_debug
+                            : null;
+                        if (window.lastCurveTraceDebug) {
+                            console.info('[trace debug]', window.lastCurveTraceDebug);
+                        }
                         lastCurveTraces = traces;
                         curveIndexToTraceKey = {};
                         const emptyTraceCurves = [];
@@ -8297,7 +9013,27 @@
                     primaryRegionDrag.active = false;
                     headerRegionDrag = false;
 
+                    resetAutoBlackCaptureSession();
                     showStatus(message, statusType);
+                    void autoCaptureBlackSegments('digitize_post', {
+                        captureSource: 'auto_black_capture_digitize_post',
+                    });
+
+                    const btnSaveLog = document.createElement('button');
+                    btnSaveLog.type = 'button';
+                    btnSaveLog.className = 'btn';
+                    btnSaveLog.innerHTML = '💾 Save Log to Account';
+                    btnSaveLog.onclick = saveLogToAccount;
+                    
+                    const existingSave = document.getElementById('saveLogBtn');
+                    if (existingSave) existingSave.remove();
+                    
+                    btnSaveLog.id = 'saveLogBtn';
+                    btnSaveLog.style.marginLeft = '10px';
+                    btnSaveLog.style.background = '#0ea5e9';
+                    btnSaveLog.style.border = '1px solid #0284c7';
+                    
+                    document.getElementById('downloadLasBtn').parentNode.appendChild(btnSaveLog);
                 } else {
                     const msg = (data && (data.error || data.message)) ? (data.error || data.message) : 'Error during digitization';
                     showStatus('❌ ' + msg, 'error');
@@ -8383,6 +9119,10 @@
                 URL.revokeObjectURL(url);
                 
                 showStatus('✅ ZIP download started.', 'success');
+                void autoCaptureBlackSegments('download_snapshot', {
+                    captureSource: 'auto_black_capture_download',
+                    downloadFormat: 'zip',
+                });
 
             } catch (err) {
                 console.error('ZIP download failed:', err);
@@ -8426,6 +9166,76 @@
             a.download = lastLasFilename || 'digitized_log.las';
             a.click();
             URL.revokeObjectURL(url);
+            void autoCaptureBlackSegments('download_snapshot', {
+                captureSource: 'auto_black_capture_download',
+                downloadFormat: 'las',
+            });
+        }
+        
+        function saveLogToAccount() {
+            if (!lastLasContent) {
+                alert('No LAS data to save. Digitize first.');
+                return;
+            }
+            
+            const logName = prompt("Enter a name for this log:", lastLasFilename || "New Well Log");
+            if (!logName) return;
+            
+            const btn = document.getElementById('saveLogBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '⏳ Saving...';
+            btn.disabled = true;
+            
+            const curveCount = document.querySelectorAll('.track-section').length;
+            const topDepth = parseFloat(document.getElementById('topDepth').value) || 0;
+            const bottomDepth = parseFloat(document.getElementById('bottomDepth').value) || 0;
+            const depthUnit = document.getElementById('depthUnit').value;
+            
+            // Rebuild LAS to include manual edits
+            let finalLasContent = lastLasContent;
+            if (Array.isArray(lastDigitizedDepth) && lastDigitizedDepth.length > 0 &&
+                lastDigitizedCurves && typeof lastDigitizedCurves === 'object' &&
+                lastDepthConfig) {
+                const rebuilt = buildLasFromDigitized(lastDigitizedDepth, lastDigitizedCurves, lastDepthConfig, lastNullValue);
+                if (rebuilt && typeof rebuilt === 'string' && rebuilt.trim().length) {
+                    finalLasContent = rebuilt;
+                }
+            }
+            
+            fetch('/api/logs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name: logName,
+                    curve_count: curveCount,
+                    depth_start: topDepth,
+                    depth_end: bottomDepth,
+                    depth_unit: depthUnit,
+                    las_content: finalLasContent
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    btn.innerHTML = '✅ Saved!';
+                    showStatus(`Log saved successfully: ${logName}`, 'success');
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.disabled = false;
+                    }, 3000);
+                } else {
+                    throw new Error(data.error || 'Failed to save log');
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                btn.innerHTML = '❌ Error';
+                showStatus(`Error saving log: ${err.message}`, 'error');
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }, 3000);
+            });
         }
 
         function showStatus(message, type) {
@@ -9061,7 +9871,7 @@
                             <div class="insight-block">
                                 <h3>Header OCR (key items)</h3>
                                 <div class="header-ocr-grid">${chips}</div>
-                                <div class="hint-text" style="margin-top: 4px;">
+                                <div class="hint-text" class="mt-1">
                                     Legend:
                                     <span class="header-ocr-tag header-ocr-tag-gr">GR / Gamma Ray</span>
                                     <span class="header-ocr-tag header-ocr-tag-rhob">RHOB / Density</span>
@@ -9081,3 +9891,11 @@
     </script>
 </body>
 </html>
+
+
+
+
+
+
+
+

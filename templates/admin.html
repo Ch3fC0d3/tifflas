@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - TifLAS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+    <div class="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+        <div class="mb-6 flex items-center justify-between gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-amber-500">Admin Panel</h1>
+                <p class="mt-1 text-sm text-slate-300">
+                    Manage users and view digitized logs across the platform.
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/dashboard" class="rounded-md border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800">Back to Dashboard</a>
+                <a href="/logout" class="rounded-md border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800">Logout</a>
+            </div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="mb-6 space-y-2">
+                    {% for category, message in messages %}
+                        <div class="rounded-md border px-4 py-3 text-sm {% if category == 'error' %}border-red-800 bg-red-950 text-red-200{% elif category == 'warning' %}border-amber-800 bg-amber-950 text-amber-200{% else %}border-blue-800 bg-blue-950 text-blue-200{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <div class="grid gap-6 md:grid-cols-2 mb-6">
+            <div class="rounded-lg border border-amber-900/50 bg-slate-900 p-6">
+                <h2 class="mb-4 text-lg font-semibold border-b border-slate-800 pb-2">Business Metrics</h2>
+                <div class="space-y-3 text-sm">
+                    <div class="flex justify-between border-b border-slate-800/50 pb-2">
+                        <span class="text-slate-400">Monthly Recurring Revenue (MRR)</span>
+                        <span class="font-bold text-emerald-400">${{ "%.2f"|format(stats.mrr) }}</span>
+                    </div>
+                    <div class="flex justify-between border-b border-slate-800/50 pb-2">
+                        <span class="text-slate-400">Active Paid Users</span>
+                        <span class="font-medium text-emerald-300">{{ stats.active_paid_users }}</span>
+                    </div>
+                    <div class="flex justify-between border-b border-slate-800/50 pb-2">
+                        <span class="text-slate-400">Trial Users</span>
+                        <span class="font-medium text-blue-300">{{ stats.trial_users }}</span>
+                    </div>
+                    <div class="flex justify-between pb-2">
+                        <span class="text-slate-400">Total Users</span>
+                        <span class="font-medium">{{ users|length }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="rounded-lg border border-amber-900/50 bg-slate-900 p-6">
+                <h2 class="mb-4 text-lg font-semibold border-b border-slate-800 pb-2">Usage Metrics</h2>
+                <div class="space-y-3 text-sm">
+                    <div class="flex justify-between border-b border-slate-800/50 pb-2">
+                        <span class="text-slate-400">Logs Digitized (24h / 7d)</span>
+                        <span class="font-medium">{{ stats.logs_24h }} / {{ stats.logs_7d }}</span>
+                    </div>
+                    <div class="flex justify-between border-b border-slate-800/50 pb-2">
+                        <span class="text-slate-400">Total Curves Digitized</span>
+                        <span class="font-medium">{{ stats.total_curves }}</span>
+                    </div>
+                    <div class="flex justify-between border-b border-slate-800/50 pb-2">
+                        <span class="text-slate-400">Total Storage Used</span>
+                        <span class="font-medium">{{ "%.2f"|format(stats.total_storage_bytes / 1024 / 1024) }} MB</span>
+                    </div>
+                    <div class="flex justify-between pb-2">
+                        <span class="text-slate-400">Top Users</span>
+                        <div class="text-right">
+                            {% for tu in stats.most_active_users %}
+                                <div class="text-xs text-slate-300">{{ tu.email }} ({{ tu.log_count }} logs)</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mb-6 rounded-lg border border-indigo-900/50 bg-slate-900 p-6">
+            <h2 class="mb-4 text-lg font-semibold border-b border-slate-800 pb-2">Global Settings</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Global Banner Message</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="global_banner" value="{{ settings.get('global_banner', '') }}" class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" placeholder="E.g., Scheduled maintenance at midnight...">
+                        <button onclick="updateSetting('global_banner')" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors">Save</button>
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-3 border-t border-slate-800/50 pt-4">
+                    <label class="relative inline-flex cursor-pointer items-center">
+                        <input type="checkbox" id="feature_flag_experimental_ai" class="peer sr-only" {% if settings.get('feature_flag_experimental_ai') == '1' %}checked{% endif %} onchange="updateToggle('feature_flag_experimental_ai')">
+                        <div class="peer h-6 w-11 rounded-full bg-slate-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-indigo-600 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300"></div>
+                    </label>
+                    <span class="text-sm font-medium text-slate-300">Enable Experimental AI Features</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid gap-6">
+            <!-- User Info -->
+            <div class="rounded-lg border border-amber-900/50 bg-slate-900 p-6">
+                <h2 class="mb-4 text-lg font-semibold border-b border-slate-800 pb-2 flex items-center justify-between">
+                    <span>All Users</span>
+                    <span class="text-sm font-normal text-slate-400">Total: {{ users|length }}</span>
+                </h2>
+                <div class="space-y-3 text-sm">
+                    <table class="w-full text-left text-sm">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-slate-400">
+                                <th class="pb-2 font-medium">Name</th>
+                                <th class="pb-2 font-medium">Company</th>
+                                <th class="pb-2 font-medium">Email</th>
+                                <th class="pb-2 font-medium">Status</th>
+                                <th class="pb-2 font-medium">Data</th>
+                                <th class="pb-2 font-medium">Joined</th>
+                                <th class="pb-2 font-medium text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/50">
+                            {% for u in users %}
+                            <tr class="hover:bg-slate-800/50 transition-colors {% if u.is_banned %}opacity-50{% endif %}">
+                                <td class="py-3">
+                                    {{ u.full_name }} 
+                                    {% if u.is_admin %}<span class="inline-block ml-1 rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] text-amber-500">Admin</span>{% endif %}
+                                    {% if u.is_banned %}<span class="inline-block ml-1 rounded bg-red-900/50 px-1.5 py-0.5 text-[10px] text-red-500">Banned</span>{% endif %}
+                                </td>
+                                <td class="py-3">{{ u.company_name }}</td>
+                                <td class="py-3 text-slate-300">{{ u.email }}</td>
+                                <td class="py-3">
+                                    {% if u.subscription_status == 'active' %}
+                                    <span class="rounded bg-emerald-900/30 px-2 py-1 text-xs text-emerald-400">Active ({{ u.plan_code }})</span>
+                                    {% elif u.subscription_status == 'trialing' %}
+                                    <span class="rounded bg-blue-900/30 px-2 py-1 text-xs text-blue-400" title="Ends {{ u.trial_ends_at }}">Trial</span>
+                                    {% elif u.subscription_status == 'past_due' or u.subscription_status == 'unpaid' %}
+                                    <span class="rounded bg-red-900/30 px-2 py-1 text-xs text-red-400">Past Due</span>
+                                    {% else %}
+                                    <span class="rounded bg-slate-800 px-2 py-1 text-xs text-slate-400">{{ u.subscription_status }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="py-3 text-slate-400 text-xs">
+                                    {{ u.log_count or 0 }} logs<br>
+                                    {{ "%.2f"|format((u.total_log_bytes or 0) / 1024 / 1024) }} MB
+                                </td>
+                                <td class="py-3 text-slate-400">{{ u.created_at[:10] }}</td>
+                                <td class="py-3 text-right space-x-2">
+                                    {% if impersonating_id == u.id %}
+                                        <button onclick="adminAction('stop_impersonate', '{{ u.id }}')" class="text-xs text-amber-500 hover:text-amber-400">Stop Viewing</button>
+                                    {% else %}
+                                        <button onclick="adminAction('impersonate', '{{ u.id }}')" class="text-xs text-indigo-400 hover:text-indigo-300">Login As</button>
+                                    {% endif %}
+                                    
+                                    <div class="relative inline-block text-left group">
+                                        <button class="text-xs text-slate-400 hover:text-white">More ▼</button>
+                                        <div class="hidden group-hover:block absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-slate-800 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                                            <div class="py-1" role="none">
+                                                {% if u.subscription_status == 'trialing' %}
+                                                <button onclick="adminAction('extend_trial', '{{ u.id }}')" class="text-slate-300 hover:bg-slate-700 block w-full px-4 py-2 text-left text-sm">+7 Days Trial</button>
+                                                {% endif %}
+                                                <button onclick="adminAction('make_lifetime', '{{ u.id }}')" class="text-emerald-400 hover:bg-slate-700 block w-full px-4 py-2 text-left text-sm">Comp Lifetime</button>
+                                                {% if u.is_banned %}
+                                                <button onclick="adminAction('unban', '{{ u.id }}')" class="text-slate-300 hover:bg-slate-700 block w-full px-4 py-2 text-left text-sm">Unban</button>
+                                                {% else %}
+                                                <button onclick="adminAction('ban', '{{ u.id }}')" class="text-amber-500 hover:bg-slate-700 block w-full px-4 py-2 text-left text-sm">Ban User</button>
+                                                {% endif %}
+                                                <button onclick="if(confirm('Are you sure you want to permanently delete this user and all their logs?')) adminAction('delete', '{{ u.id }}')" class="text-red-500 hover:bg-slate-700 block w-full px-4 py-2 text-left text-sm border-t border-slate-700 mt-1">Delete Account</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- System Logs -->
+            <div class="rounded-lg border border-slate-800 bg-slate-900 p-6 mt-4">
+                <h2 class="mb-4 text-lg font-semibold border-b border-slate-800 pb-2 flex items-center justify-between">
+                    <span>All Digitized Logs</span>
+                    <span class="text-sm font-normal text-slate-400">Total: {{ logs|length }}</span>
+                </h2>
+                <div class="space-y-3 text-sm">
+                    <table class="w-full text-left text-sm">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-slate-400">
+                                <th class="pb-2 font-medium">Log Name</th>
+                                <th class="pb-2 font-medium">User Email</th>
+                                <th class="pb-2 font-medium">Curves</th>
+                                <th class="pb-2 font-medium">Created At</th>
+                                <th class="pb-2 font-medium"></th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/50">
+                            {% for l in logs %}
+                            <tr class="hover:bg-slate-800/50 transition-colors">
+                                <td class="py-3 font-medium">{{ l.name }} <span class="text-slate-500 text-xs font-normal">({{ "%.2f"|format(l.size_bytes / 1024) }} KB)</span></td>
+                                <td class="py-3 text-slate-400">{{ l.user_email }}</td>
+                                <td class="py-3">{{ l.curve_count }}</td>
+                                <td class="py-3 text-slate-400">{{ l.created_at[:10] }}</td>
+                                <td class="py-3 text-right">
+                                    <a href="/las_viewer?log_id={{ l.id }}" class="text-emerald-400 hover:text-emerald-300 mr-3 text-xs">View</a>
+                                    <a href="/api/logs/{{ l.id }}/download" class="text-indigo-400 hover:text-indigo-300 text-xs">Download</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            {% if not logs %}
+                            <tr>
+                                <td colspan="5" class="py-8 text-center text-slate-500">No logs saved yet.</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        async function adminAction(action, userId) {
+            try {
+                const res = await fetch('/admin/action', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action: action, user_id: userId })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (action === 'impersonate') {
+                        window.location.href = '/dashboard';
+                    } else {
+                        window.location.reload();
+                    }
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (e) {
+                alert('Request failed');
+            }
+        }
+        
+        async function updateSetting(key) {
+            const val = document.getElementById(key).value;
+            try {
+                const res = await fetch('/admin/action', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action: 'update_setting', key: key, value: val })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Setting updated successfully.');
+                }
+            } catch (e) {
+                alert('Update failed');
+            }
+        }
+        
+        async function updateToggle(key) {
+            const checked = document.getElementById(key).checked;
+            try {
+                await fetch('/admin/action', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action: 'update_setting', key: key, value: checked ? '1' : '0' })
+                });
+            } catch (e) {
+                console.error('Toggle failed');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Billing Health - TifLAS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+    <div class="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+        <div class="mb-6 flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold">Billing Health</h1>
+                <p class="mt-1 text-sm text-slate-300">Protected deployment checks for Stripe + auth readiness.</p>
+            </div>
+            <a href="/account" class="rounded-md border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800">Back to Account</a>
+        </div>
+
+        {% set ok_badge = 'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-emerald-900 text-emerald-200 border border-emerald-700' %}
+        {% set bad_badge = 'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-red-900 text-red-200 border border-red-700' %}
+
+        <section class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <div class="flex items-center gap-2">
+                <h2 class="text-lg font-semibold">Stripe readiness</h2>
+                <span class="{{ ok_badge if payload.stripe_ready else bad_badge }}">{{ 'READY' if payload.stripe_ready else 'NOT READY' }}</span>
+            </div>
+            <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                {% for key, value in payload.stripe_env.items() %}
+                <div class="flex items-center justify-between rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
+                    <span class="text-slate-300">{{ key }}</span>
+                    <span class="{{ ok_badge if value == 'set' else bad_badge }}">{{ value|upper }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <h2 class="text-lg font-semibold">Auth + database checks</h2>
+            <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                <div class="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
+                    <div class="text-slate-400">AUTH_DB_PATH</div>
+                    <div class="mt-1 break-all text-slate-200">{{ payload.auth_env.AUTH_DB_PATH }}</div>
+                </div>
+                <div class="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
+                    <div class="text-slate-400">Expected webhook URL</div>
+                    <div class="mt-1 break-all text-slate-200">{{ payload.webhook_expected_url }}</div>
+                </div>
+                <div class="flex items-center justify-between rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
+                    <span class="text-slate-300">Auth DB exists</span>
+                    <span class="{{ ok_badge if payload.auth_env.auth_db_exists else bad_badge }}">{{ 'YES' if payload.auth_env.auth_db_exists else 'NO' }}</span>
+                </div>
+                <div class="flex items-center justify-between rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
+                    <span class="text-slate-300">Auth DB directory writable</span>
+                    <span class="{{ ok_badge if payload.auth_env.auth_db_dir_writable else bad_badge }}">{{ 'YES' if payload.auth_env.auth_db_dir_writable else 'NO' }}</span>
+                </div>
+            </div>
+            {% if payload.db_error %}
+            <div class="mt-3 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-200">
+                DB error: {{ payload.db_error }}
+            </div>
+            {% endif %}
+        </section>
+
+        <section class="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <h2 class="text-lg font-semibold">Database stats</h2>
+            <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div class="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
+                    <div class="text-slate-400">Users total</div>
+                    <div class="mt-1 text-lg font-bold text-slate-100">{{ payload.db_stats.users_total }}</div>
+                </div>
+                <div class="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
+                    <div class="text-slate-400">Trialing/Active</div>
+                    <div class="mt-1 text-lg font-bold text-slate-100">{{ payload.db_stats.users_trialing_or_active }}</div>
+                </div>
+                <div class="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
+                    <div class="text-slate-400">With Stripe Customer</div>
+                    <div class="mt-1 text-lg font-bold text-slate-100">{{ payload.db_stats.users_with_stripe_customer }}</div>
+                </div>
+            </div>
+        </section>
+    </div>
+</body>
+</html>

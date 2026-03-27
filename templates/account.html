@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Member Account - TifLAS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+    <div class="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+        <div class="mb-6 flex items-center justify-between gap-4">
+            <div>
+                <h1 class="text-2xl font-bold">Member Account</h1>
+                <p class="mt-1 text-sm text-slate-300">
+                    The member account page lets users manage their TifLAS subscription, payment method, invoices, and plan status. New users receive a 30-day free trial, then can continue on either a $99 monthly plan or a $999 annual plan.
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/workspace" class="rounded-md border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800">Work Area</a>
+                <a href="/dashboard" class="rounded-md border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800">Back to Dashboard</a>
+                <a href="/logout" class="rounded-md border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800">Logout</a>
+            </div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="mb-6 space-y-2">
+                    {% for category, message in messages %}
+                    <div class="rounded-md border px-4 py-3 text-sm {% if category == 'error' %}border-red-800 bg-red-950 text-red-200{% elif category == 'warning' %}border-amber-800 bg-amber-950 text-amber-200{% else %}border-blue-800 bg-blue-950 text-blue-200{% endif %}">
+                        {{ message }}
+                    </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% if not billing_ready %}
+        <div class="mb-6 rounded-md border border-amber-800 bg-amber-950 p-4 text-amber-200">
+            Stripe is not configured yet. Add STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL, and APP_BASE_URL on Railway.
+        </div>
+        {% endif %}
+
+        <div class="mb-6 rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <h2 class="text-lg font-semibold border-b border-slate-800 pb-3 mb-4">Profile Information</h2>
+            <form method="POST" action="/account/update" class="grid gap-4 md:grid-cols-2">
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Full Name</label>
+                    <input type="text" name="full_name" value="{{ user.full_name }}" class="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Company Name</label>
+                    <input type="text" name="company_name" value="{{ user.company_name }}" class="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1">Email Address</label>
+                    <input type="email" value="{{ user.email }}" class="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-400 cursor-not-allowed" disabled title="Contact support to change your email address">
+                </div>
+                <div class="md:col-span-2 flex justify-end mt-2">
+                    <button type="submit" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors">Save Profile</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="grid gap-4 md:grid-cols-2">
+            <section class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                <h2 class="text-lg font-semibold">Current Plan</h2>
+                <p class="mt-2 text-sm text-slate-300">{{ current_plan_label }}</p>
+                <p class="mt-1 text-xs text-slate-400">Status: {{ user.subscription_status|default('none') }}</p>
+            </section>
+
+            <section class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                <h2 class="text-lg font-semibold">Trial Countdown</h2>
+                {% if trial_countdown %}
+                    {% if trial_countdown.expired %}
+                        <p class="mt-2 text-sm text-red-300">Trial expired</p>
+                    {% else %}
+                        <p class="mt-2 text-sm text-slate-300">{{ trial_countdown.days }} days {{ trial_countdown.hours }} hours remaining</p>
+                    {% endif %}
+                {% else %}
+                    <p class="mt-2 text-sm text-slate-400">No trial currently active.</p>
+                {% endif %}
+            </section>
+
+            <section class="rounded-xl border border-slate-800 bg-slate-900 p-5 md:col-span-2">
+                <h2 class="text-lg font-semibold">Upgrade Options</h2>
+                <div class="mt-4 flex flex-wrap gap-3">
+                    <form method="POST" action="/billing/create-checkout-session">
+                        <input type="hidden" name="plan" value="monthly">
+                        <input type="hidden" name="mode" value="trial">
+                        <button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500" {% if not trial_eligibility.eligible %}disabled{% endif %}>Start Free Trial</button>
+                    </form>
+
+                    <form method="POST" action="/billing/create-checkout-session">
+                        <input type="hidden" name="plan" value="monthly">
+                        <input type="hidden" name="mode" value="upgrade">
+                        <button type="submit" class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800">Upgrade to Monthly</button>
+                    </form>
+
+                    <form method="POST" action="/billing/create-checkout-session">
+                        <input type="hidden" name="plan" value="annual">
+                        <input type="hidden" name="mode" value="upgrade">
+                        <button type="submit" class="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white ring-2 ring-emerald-300 hover:bg-emerald-500">Upgrade to Annual</button>
+                    </form>
+                </div>
+                <p class="mt-2 text-xs text-slate-400">Annual plan highlighted as best value. {% if not trial_eligibility.eligible %}{{ trial_eligibility.reason }}{% endif %}</p>
+            </section>
+
+            <section class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                <h2 class="text-lg font-semibold">Payment Method</h2>
+                {% if payment_method %}
+                    <p class="mt-2 text-sm text-slate-300">{{ payment_method.brand }} ending in {{ payment_method.last4 }}</p>
+                    <p class="mt-1 text-xs text-slate-400">Expires {{ payment_method.exp_month }}/{{ payment_method.exp_year }}</p>
+                {% else %}
+                    <p class="mt-2 text-sm text-slate-400">No payment method on file.</p>
+                {% endif %}
+                <form method="POST" action="/billing/portal" class="mt-4">
+                    <button type="submit" class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800">Manage Billing</button>
+                </form>
+            </section>
+
+            <section class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                <h2 class="text-lg font-semibold">Cancel / Change Plan</h2>
+                {% if cancel_at_period_end %}
+                    <p class="mt-2 text-sm text-amber-300">Cancellation already scheduled at period end.</p>
+                {% else %}
+                    <p class="mt-2 text-sm text-slate-400">Auto-renews unless canceled.</p>
+                {% endif %}
+                <form method="POST" action="/billing/cancel-plan" class="mt-4">
+                    <button type="submit" class="rounded-md border border-red-700 px-4 py-2 text-sm font-semibold text-red-300 hover:bg-red-950">Cancel Plan</button>
+                </form>
+            </section>
+
+            <section class="rounded-xl border border-slate-800 bg-slate-900 p-5 md:col-span-2">
+                <h2 class="text-lg font-semibold">Invoice History</h2>
+                {% if invoices %}
+                    <div class="mt-4 overflow-x-auto">
+                        <table class="min-w-full text-left text-sm">
+                            <thead class="text-slate-400">
+                                <tr>
+                                    <th class="pb-2 pr-4">Invoice</th>
+                                    <th class="pb-2 pr-4">Date</th>
+                                    <th class="pb-2 pr-4">Amount</th>
+                                    <th class="pb-2 pr-4">Status</th>
+                                    <th class="pb-2">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-slate-200">
+                                {% for inv in invoices %}
+                                <tr class="border-t border-slate-800">
+                                    <td class="py-2 pr-4">{{ inv.number }}</td>
+                                    <td class="py-2 pr-4">{{ inv.created_at }}</td>
+                                    <td class="py-2 pr-4">{{ '%.2f'|format(inv.amount_paid) }} {{ inv.currency }}</td>
+                                    <td class="py-2 pr-4">{{ inv.status }}</td>
+                                    <td class="py-2">
+                                        {% if inv.invoice_pdf %}
+                                        <a href="{{ inv.invoice_pdf }}" target="_blank" rel="noopener noreferrer" class="rounded-md border border-slate-600 px-3 py-1 text-xs font-semibold hover:bg-slate-800">Download Invoice</a>
+                                        {% elif inv.hosted_invoice_url %}
+                                        <a href="{{ inv.hosted_invoice_url }}" target="_blank" rel="noopener noreferrer" class="rounded-md border border-slate-600 px-3 py-1 text-xs font-semibold hover:bg-slate-800">Download Invoice</a>
+                                        {% else %}
+                                        <span class="text-xs text-slate-500">N/A</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="mt-2 text-sm text-slate-400">No invoices yet.</p>
+                {% endif %}
+            </section>
+        </div>
+    </div>
+</body>
+</html>
