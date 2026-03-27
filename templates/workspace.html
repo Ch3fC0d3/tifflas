@@ -6954,13 +6954,29 @@
             const displayUnits = ['API', 'g/cc', 'v/v', 'us/ft', 'in', 'mV', 'ohmm', 'mD'];
 
             for (let i = 0; i < numCurves; i++) {
-                const track = (tracks && tracks[i]) || (detectedTracks && detectedTracks[i]) || null;
-                const hint = (ocrSuggestions && ocrSuggestions.curves && ocrSuggestions.curves[i]) || null;
-                const headerTrack = Array.isArray(headerTracks) && headerTracks[i] ? headerTracks[i] : null;
+                        // If the user manually changes the number of curves, we should only use AI tracks if they match the requested number,
+        // otherwise we fall back to an even split to avoid overlapping and mismatched track bounds.
+        const useDetectedTracks = tracks ? true : (detectedTracks && detectedTracks.length >= numCurves);
+        const useHints = ocrSuggestions && ocrSuggestions.curves && ocrSuggestions.curves.length >= numCurves;
+        const useHeaderTracks = headerTracks && headerTracks.length >= numCurves;
 
-                // Base left/right pixels from panel/AI tracks or a simple fallback
-                let leftPx = track ? track[0] : hint ? Math.round(hint.left_px) : Math.floor(imageWidth * (0.1 + i * 0.8 / numCurves));
-                let rightPx = track ? track[1] : hint ? Math.round(hint.right_px) : Math.floor(imageWidth * (0.1 + (i + 1) * 0.8 / numCurves));
+        const track = (tracks && tracks[i]) || (useDetectedTracks && detectedTracks[i]) || null;
+        const hint = (useHints && ocrSuggestions.curves[i]) || null;
+        const headerTrack = (useHeaderTracks && Array.isArray(headerTracks) && headerTracks[i]) ? headerTracks[i] : null;
+
+                        // Base left/right pixels from panel/AI tracks or a simple fallback
+        let fallbackLeft = 0;
+        let fallbackWidth = imageWidth;
+        if (primaryRegion && Number.isFinite(primaryRegion.left_px) && Number.isFinite(primaryRegion.right_px)) {
+            fallbackLeft = primaryRegion.left_px;
+            fallbackWidth = primaryRegion.right_px - primaryRegion.left_px;
+        } else {
+            fallbackLeft = imageWidth * 0.1;
+            fallbackWidth = imageWidth * 0.8;
+        }
+        
+        let leftPx = track ? track[0] : hint ? Math.round(hint.left_px) : Math.floor(fallbackLeft + (i * fallbackWidth / numCurves));
+        let rightPx = track ? track[1] : hint ? Math.round(hint.right_px) : Math.floor(fallbackLeft + ((i + 1) * fallbackWidth / numCurves));
 
                 if (headerTrack && Number.isFinite(headerTrack.left_px) && Number.isFinite(headerTrack.right_px) && headerTrack.right_px > headerTrack.left_px) {
                     leftPx = Math.round(headerTrack.left_px);
