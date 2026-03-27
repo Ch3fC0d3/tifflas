@@ -6194,35 +6194,35 @@ def compute_depth_warnings(depth_cfg, image_height):
 
 
 def auto_detect_tracks(image_array):
-    """Auto-detect track boundaries by finding vertical edges, filtering out narrow depth columns"""
+    """Auto-detect track boundaries."""
     gray = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, 50, 150)
     vertical_sum = np.sum(edges, axis=0)
-    
-    # Peak detection for vertical edges
+
+    # Simple peak detection
     threshold = np.max(vertical_sum) * 0.3
     peaks = []
     for i in range(1, len(vertical_sum)-1):
         if vertical_sum[i] > threshold and vertical_sum[i] > vertical_sum[i-1] and vertical_sum[i] > vertical_sum[i+1]:
             peaks.append(i)
-    
-    # Group consecutive peaks into tracks
-    if len(peaks) >= 2:
-        tracks = []
-        for i in range(len(peaks) - 1):
-            left = peaks[i]
-            right = peaks[i + 1]
-            width = right - left
-            # Filter out narrow regions (likely depth columns, not data tracks)
-            # Typical depth columns are 30-80px wide; data tracks are usually 80-300px
-            if width >= 30:
-                tracks.append((left, right))
+
+    # Filter peaks that are too close to each other (e.g., edges of the same thick line)
+    w = image_array.shape[1]
+    min_dist = w * 0.05  # Assume a track is at least 5% of image width
+
+    filtered_peaks = []
+    for p in peaks:
+        if not filtered_peaks or (p - filtered_peaks[-1]) >= min_dist:
+            filtered_peaks.append(p)
+
+    # Group into tracks (a track is between two consecutive lines)
+    if len(filtered_peaks) >= 2:
+        tracks = [(int(filtered_peaks[i]), int(filtered_peaks[i + 1])) for i in range(len(filtered_peaks) - 1)]
     else:
-        # Fallback: divide into equal sections
-        w = image_array.shape[1]
+        # Fallback: divide into 3 equal sections
         section_width = w // 3
-        tracks = [(i*section_width, (i+1)*section_width) for i in range(3)]
-    
+        tracks = [(int(i * section_width), int((i + 1) * section_width)) for i in range(3)]
+
     return tracks
 
 
@@ -6804,6 +6804,20 @@ def download_log(log_id):
     )
 
 
+
+@app.route('/workspace')
+@login_required
+def workspace():
+    user = _current_user(require_access=True)
+    if not user:
+        return redirect(url_for('login'))
+        
+    return render_template('workspace.html',
+                           user=user,
+                           app_version=APP_VERSION,
+                           build_time=APP_BUILD_TIME,
+                           vision_available=VISION_API_AVAILABLE,
+                           impersonating=bool(session.get('impersonate_user_id')))
 
 @app.route('/dashboard')
 @login_required
