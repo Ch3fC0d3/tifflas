@@ -1491,6 +1491,7 @@
         let pinnedDepthIndices = new Map();
         let lastMouseImgX = null;
         let lastMouseImgY = null;
+        let currentUploadSignature = null;
 
         function sanitizeTrackPairs(trackPairs) {
             if (!Array.isArray(trackPairs)) return [];
@@ -1684,7 +1685,7 @@
             }
         }
 
-        const DEPTH_SESSION_KEY = 'turbotifflas_depth_config_v2';
+        const DEPTH_SESSION_KEY = 'turbotifflas_depth_config_v3';
         const INTRO_SESSION_KEY = 'turbotifflas_intro_seen_v1';
 
         function updateDisplayBaseScale() {
@@ -4899,6 +4900,9 @@
                     ...cfg,
                     image_width: Number.isFinite(imageWidth) ? imageWidth : null,
                     image_height: Number.isFinite(imageHeight) ? imageHeight : null,
+                    upload_name: currentUploadSignature && currentUploadSignature.name ? currentUploadSignature.name : null,
+                    upload_size: currentUploadSignature && Number.isFinite(currentUploadSignature.size) ? currentUploadSignature.size : null,
+                    upload_last_modified: currentUploadSignature && Number.isFinite(currentUploadSignature.lastModified) ? currentUploadSignature.lastModified : null,
                 }));
             } catch (e) {
                 // ignore storage errors
@@ -4920,15 +4924,44 @@
                     return null;
                 }
 
+                const savedImageWidth = Number(cfg.image_width);
                 const savedImageHeight = Number(cfg.image_height);
+                const currentImageWidth = Number(imageWidth);
                 const currentImageHeight = Number(imageHeight);
-                if (!Number.isFinite(savedImageHeight) || savedImageHeight <= 0 ||
+                if (!Number.isFinite(savedImageWidth) || savedImageWidth <= 0 ||
+                    !Number.isFinite(savedImageHeight) || savedImageHeight <= 0 ||
+                    !Number.isFinite(currentImageWidth) || currentImageWidth <= 0 ||
                     !Number.isFinite(currentImageHeight) || currentImageHeight <= 0) {
                     return null;
                 }
 
+                const savedName = cfg.upload_name != null ? String(cfg.upload_name) : '';
+                const currentName = currentUploadSignature && currentUploadSignature.name ? String(currentUploadSignature.name) : '';
+                const savedSize = Number(cfg.upload_size);
+                const currentSize = currentUploadSignature ? Number(currentUploadSignature.size) : NaN;
+                const savedLastModified = Number(cfg.upload_last_modified);
+                const currentLastModified = currentUploadSignature ? Number(currentUploadSignature.lastModified) : NaN;
+
+                const haveSavedSignature = !!savedName || Number.isFinite(savedSize) || Number.isFinite(savedLastModified);
+                const haveCurrentSignature = !!currentName || Number.isFinite(currentSize) || Number.isFinite(currentLastModified);
+                if (haveSavedSignature && haveCurrentSignature) {
+                    const sameName = !!savedName && !!currentName && savedName === currentName;
+                    const sameSize = Number.isFinite(savedSize) && Number.isFinite(currentSize) && savedSize === currentSize;
+                    const sameLastModified =
+                        Number.isFinite(savedLastModified) &&
+                        Number.isFinite(currentLastModified) &&
+                        savedLastModified === currentLastModified;
+                    if (!sameName || !sameSize || !sameLastModified) {
+                        return null;
+                    }
+                }
+
+                const scaleX = currentImageWidth / savedImageWidth;
                 const scaleY = currentImageHeight / savedImageHeight;
-                const exactReuse = Math.abs(scaleY - 1) <= 0.02;
+                if (Math.abs(scaleX - scaleY) > 0.03) {
+                    return null;
+                }
+                const exactReuse = Math.abs(scaleX - 1) <= 0.02 && Math.abs(scaleY - 1) <= 0.02;
 
                 const scaleDepthPx = (value) => {
                     const px = Number(value);
@@ -4938,6 +4971,9 @@
 
                 const scaledTopPx = scaleDepthPx(cfg.top_px);
                 const scaledBottomPx = scaleDepthPx(cfg.bottom_px);
+                if (!Number.isFinite(scaledTopPx) || !Number.isFinite(scaledBottomPx) || scaledBottomPx <= scaledTopPx) {
+                    return null;
+                }
                 if (Number.isFinite(scaledTopPx)) topPxInput.value = scaledTopPx;
                 if (Number.isFinite(scaledBottomPx)) bottomPxInput.value = scaledBottomPx;
                 if (Number.isFinite(cfg.top_depth)) topDepthInput.value = cfg.top_depth;
@@ -5850,6 +5886,12 @@
                 showStatus(`❌ File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Please use an image smaller than 100MB.`, 'error');
                 return;
             }
+
+            currentUploadSignature = {
+                name: file && file.name ? String(file.name) : '',
+                size: file && Number.isFinite(Number(file.size)) ? Number(file.size) : null,
+                lastModified: file && Number.isFinite(Number(file.lastModified)) ? Number(file.lastModified) : null,
+            };
 
             primaryRegion = null;
             panelSelectMode = false;
@@ -8594,8 +8636,8 @@
                     } else if (compactOverlay) {
                         const hairline = Math.max(0.1, 1 / Math.max(1, sx));
                         for (let i = 0; i < stickSamples.length; i++) {
-                            let xDom = (stickSamples[i][0] * scaleX) - viewLeft;
-                            let yDom = (stickSamples[i][1] * scaleY) - viewTop;
+                            let xDom = (stickSamples[i][0] * scaleX);
+                            let yDom = (stickSamples[i][1] * scaleY);
                             xDom = _snapCoord(xDom, sx, true);
                             yDom = _snapCoord(yDom, sy, true);
                             ctx.beginPath();
@@ -8612,8 +8654,8 @@
                         const lineWpx = Math.max(quantPx, Math.round((stickThickness * dpr) / quantPx) * quantPx);
                         const useHalf = (Math.round(lineWpx * 2) % 4) !== 0;
                         for (let i = 0; i < stickSamples.length; i++) {
-                            let xDom = (stickSamples[i][0] * scaleX) - viewLeft;
-                            let yDom = (stickSamples[i][1] * scaleY) - viewTop;
+                            let xDom = (stickSamples[i][0] * scaleX);
+                            let yDom = (stickSamples[i][1] * scaleY);
                             xDom = _snapCoord(xDom, sx, useHalf);
                             yDom = _snapCoord(yDom, sy, useHalf);
                             ctx.save();
@@ -8661,8 +8703,8 @@
                         const yImg = sortedPoints[i][1];
                         const dIdx = (Array.isArray(sortedPoints[i]) && Number.isInteger(sortedPoints[i][2])) ? sortedPoints[i][2] : null;
                         const isPinned = (dIdx != null) ? isDepthIndexPinned(name, dIdx) : false;
-                        let xDom = (xImg * scaleX) - viewLeft;
-                        let yDom = (yImg * scaleY) - viewTop;
+                        let xDom = (xImg * scaleX);
+                        let yDom = (yImg * scaleY);
                         if (isPinned) {
                             // Pinned points get a distinct red highlight
                             ctx.beginPath();
@@ -8767,8 +8809,8 @@
                     // Draw line connecting all points
                     ctx.beginPath();
                     for (let i = 0; i < mlCurve.points.length; i++) {
-                        const xDom = (mlCurve.points[i].x * scaleX) - viewLeft;
-                        const yDom = (mlCurve.points[i].y * scaleY) - viewTop;
+                        const xDom = (mlCurve.points[i].x * scaleX);
+                        const yDom = (mlCurve.points[i].y * scaleY);
                         if (i === 0) {
                             ctx.moveTo(xDom, yDom);
                         } else {
@@ -8785,8 +8827,8 @@
                     // Scale step based on point count to avoid clutter
                     const pointStep = Math.max(1, Math.floor(mlCurve.points.length / 100));
                     for (let i = 0; i < mlCurve.points.length; i += pointStep) {
-                        const xDom = (mlCurve.points[i].x * scaleX) - viewLeft;
-                        const yDom = (mlCurve.points[i].y * scaleY) - viewTop;
+                        const xDom = (mlCurve.points[i].x * scaleX);
+                        const yDom = (mlCurve.points[i].y * scaleY);
                         ctx.beginPath();
                         ctx.arc(xDom, yDom, mlPointRadius, 0, Math.PI * 2);
                         ctx.fillStyle = mlColor;
