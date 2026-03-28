@@ -12,6 +12,16 @@ __pycache__/
 venv/
 env/
 .venv/
+data/
+*.db
+cookies.txt
+cookies_prod.txt
+server_stdout.log
+server_stderr.log
+local_*.html
+old_*.html
+test_old_*.html
+turbotiff_workspace.html
 
 # Large training / data files (too big for GitHub)
 batch_digitize_results.jsonl

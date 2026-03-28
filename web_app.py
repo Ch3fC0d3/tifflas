@@ -88,12 +88,12 @@ try:
         credentials = service_account.Credentials.from_service_account_info(creds_json)
         vision_client = vision.ImageAnnotatorClient(credentials=credentials)
         VISION_API_AVAILABLE = True
-        print("✅ Google Vision API: Loaded from environment variable")
+        print("[OK] Google Vision API: Loaded from environment variable")
     elif 'GOOGLE_APPLICATION_CREDENTIALS' in os.environ:
         # Local development: JSON file path in env var
         vision_client = vision.ImageAnnotatorClient()
         VISION_API_AVAILABLE = True
-        print("✅ Google Vision API: Loaded from file")
+        print("[OK] Google Vision API: Loaded from file")
     else:
         # Auto-detect key file in project directory
         _local_key = Path(__file__).parent / 'GOOGLE_APPLICATION_CREDENTIALS.json'
@@ -101,17 +101,17 @@ try:
             credentials = service_account.Credentials.from_service_account_file(str(_local_key))
             vision_client = vision.ImageAnnotatorClient(credentials=credentials)
             VISION_API_AVAILABLE = True
-            print(f"✅ Google Vision API: Auto-loaded from {_local_key.name}")
+            print(f"[OK] Google Vision API: Auto-loaded from {_local_key.name}")
         else:
-            print("⚠️  Google Vision API: No credentials found")
+            print("[WARN] Google Vision API: No credentials found")
             vision_client = None
             VISION_API_AVAILABLE = False
 except ImportError:
-    print("⚠️  Google Vision API not available. Install: pip install google-cloud-vision")
+    print("[WARN] Google Vision API not available. Install: pip install google-cloud-vision")
     vision_client = None
     VISION_API_AVAILABLE = False
 except Exception as e:
-    print(f"⚠️  Google Vision API error: {e}")
+    print(f"[WARN] Google Vision API error: {e}")
     vision_client = None
     VISION_API_AVAILABLE = False
 
@@ -121,9 +121,9 @@ LASIO_AVAILABLE = False
 try:
     import lasio
     LASIO_AVAILABLE = True
-    print("✅ lasio imported; LAS validation enabled.")
+    print("[OK] lasio imported; LAS validation enabled.")
 except Exception as e:
-    print(f"ℹ️  lasio unavailable; LAS validation will be skipped: {e}")
+    print(f"[INFO] lasio unavailable; LAS validation will be skipped: {e}")
 
 # Default LAS curve label mapping by type (kept in sync with frontend curveTypeDefaults)
 CURVE_TYPE_DEFAULTS = {
@@ -5066,7 +5066,7 @@ def propose_curves():
                 'right_px': rx_f,
             })
         if synth_tracks:
-            print(f"⚠️  auto_detect_tracks found {len(tracks_out)} track(s); using {len(synth_tracks)} synthetic tracks instead.")
+            print(f"[WARN] auto_detect_tracks found {len(tracks_out)} track(s); using {len(synth_tracks)} synthetic tracks instead.")
             tracks_out = synth_tracks
 
     if not tracks_out:
@@ -5094,7 +5094,7 @@ def propose_curves():
         return jsonify({'success': False, 'error': 'AI curve suggestion failed or returned no result.'}), 500
 
     ai_curves = ai_result.get('curves') or []
-    print(f"🤖 AI returned {len(ai_curves)} curve suggestions for {len(tracks_out)} detected tracks")
+    print(f"[AI] Returned {len(ai_curves)} curve suggestions for {len(tracks_out)} detected tracks")
 
     curves_cfg = []
     rejected_reasons = []
@@ -5135,13 +5135,13 @@ def propose_curves():
         })
 
     if not curves_cfg:
-        print(f"❌ All {len(ai_curves)} AI curve suggestions rejected:")
+        print(f"[ERROR] All {len(ai_curves)} AI curve suggestions rejected:")
         for reason in rejected_reasons:
             print(f"   - {reason}")
 
         # Fallback: if we have detected tracks, synthesize simple curves so the UI can proceed
         if tracks_out:
-            print("⚠️  Falling back to heuristic curves from detected tracks.")
+            print("[WARN] Falling back to heuristic curves from detected tracks.")
             for idx, t in enumerate(tracks_out[:6]):
                 try:
                     abs_left = float(left) + float(t.get('left_px', 0.0))
@@ -5165,7 +5165,7 @@ def propose_curves():
         if not curves_cfg:
             return jsonify({'success': False, 'error': 'AI returned no usable curve suggestions.'}), 400
 
-    print(f"✅ Accepted {len(curves_cfg)} curves, rejected {len(rejected_reasons)}")
+    print(f"[OK] Accepted {len(curves_cfg)} curves, rejected {len(rejected_reasons)}")
 
     return jsonify({
         'success': True,
@@ -5342,7 +5342,7 @@ def auto_layout_tracks():
 
     # If no header text found, fall back to edge-based track detection
     if not items and not full_text_blob:
-        print("⚠️  No header text found; falling back to edge-based track detection")
+        print("[WARN] No header text found; falling back to edge-based track detection")
         try:
             local_tracks = auto_detect_tracks(panel)
             tracks_out = []
@@ -5400,7 +5400,7 @@ def auto_layout_tracks():
             }), 500
 
         # Otherwise fall back to edge-based track detection on the panel.
-        print("⚠️  AI layout inference returned no result; falling back to edge-based track detection")
+        print("[WARN] AI layout inference returned no result; falling back to edge-based track detection")
         try:
             local_tracks = auto_detect_tracks(panel)
             tracks_out = []
@@ -6328,6 +6328,88 @@ def index():
                           version=APP_VERSION,
                           build_time=APP_BUILD_TIME,
                           vision_available=VISION_API_AVAILABLE)
+
+
+@app.route('/pricing')
+def pricing():
+    user = _current_user(require_access=False)
+    plans = [
+        {
+            'name': 'Monthly',
+            'price': '$99',
+            'period': '/month',
+            'badge': '30-day free trial',
+            'description': 'Best for individual users and small teams getting started with in-house conversion.',
+            'features': [
+                '30-day free trial',
+                'TIFF/PDF/PNG upload workspace',
+                'Curve extraction workflow',
+                'LAS export',
+                'Saved projects',
+                'Account dashboard',
+                'Billing & invoice history',
+            ],
+            'cta': 'Start Free Trial' if not user else 'Manage From Account',
+            'highlight': False,
+        },
+        {
+            'name': 'Annual',
+            'price': '$999',
+            'period': '/year',
+            'badge': 'Best value',
+            'description': 'For companies that want the lowest effective annual cost and uninterrupted access.',
+            'features': [
+                'Everything in Monthly',
+                '30-day free trial',
+                'Lower annual cost',
+                'Priority account support',
+                'Simplified yearly billing',
+            ],
+            'cta': 'Choose Annual' if not user else 'Manage From Account',
+            'highlight': True,
+        },
+    ]
+    managed_tiers = [
+        {
+            'name': 'Simple',
+            'price': 'From $29.99',
+            'note': 'Usually 3 curves or fewer',
+            'features': [
+                'Clean scan',
+                'Standard turnaround',
+                'Basic cleanup',
+            ],
+        },
+        {
+            'name': 'Standard',
+            'price': '$39.99-$79.99',
+            'note': 'Most routine logs',
+            'features': [
+                'Multiple curves',
+                'Moderate cleanup',
+                'Final LAS delivery',
+            ],
+        },
+        {
+            'name': 'Difficult',
+            'price': 'Custom quote',
+            'note': 'Messy, faint, wrapped, or unusual logs',
+            'features': [
+                'Complex cleanup',
+                'Manual review',
+                'Quoted by complexity',
+            ],
+        },
+    ]
+    return render_template(
+        'pricing.html',
+        user=user,
+        plans=plans,
+        managed_tiers=managed_tiers,
+        current_plan_label=auth_billing.plan_label(user.get('plan_code')) if user else None,
+    )
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handle user login against persisted user accounts."""
@@ -7083,7 +7165,7 @@ def digitize():
                 xs = ai_tracer.trace(roi)
                 confidence = np.ones_like(xs) * 0.95 # Mock high confidence for AI
             except Exception as e:
-                print(f"⚠️ AI Tracer failed for {name}: {e}")
+                print(f"[WARN] AI Tracer failed for {name}: {e}")
                 # Fallback to empty if AI fails
                 xs = np.full(roi.shape[0], np.nan)
                 confidence = np.zeros(roi.shape[0])
@@ -8104,6 +8186,119 @@ def log_correction():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+def _black_capture_output_dir(now_utc: datetime) -> Path:
+    date_str = now_utc.strftime('%Y-%m-%d')
+    out_dir = Path(__file__).resolve().parent / 'corrections' / date_str / 'black_segments'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
+
+
+def _safe_capture_component(value, default='capture') -> str:
+    text = '' if value is None else str(value).strip()
+    if not text:
+        return default
+    text = re.sub(r"\s+", "_", text)
+    text = re.sub(r"[^A-Za-z0-9_\-]+", "", text)
+    text = text.strip("_-")
+    return (text[:80] or default)
+
+
+def _write_capture_image(image_data, out_dir: Path, stem: str) -> Optional[Path]:
+    if not isinstance(image_data, str) or not image_data.startswith('data:image'):
+        return None
+
+    try:
+        header, b64 = image_data.split(',', 1)
+        ext = 'jpg'
+        if 'image/png' in header:
+            ext = 'png'
+        elif 'image/webp' in header:
+            ext = 'webp'
+
+        raw = base64.b64decode(b64)
+        image_path = out_dir / f'{stem}.{ext}'
+        image_path.write_bytes(raw)
+        return image_path
+    except Exception:
+        return None
+
+
+@app.route('/api/save_bad_black_segment', methods=['POST'])
+def save_bad_black_segment():
+    try:
+        data = request.json or {}
+        if not isinstance(data, dict):
+            return jsonify({'success': False, 'error': 'Invalid JSON payload'}), 400
+
+        now = datetime.utcnow()
+        ts = now.strftime('%Y%m%dT%H%M%S.%fZ')
+        capture_id = data.get('capture_id') or str(uuid.uuid4())
+        out_dir = _black_capture_output_dir(now)
+        curve_slug = _safe_capture_component(data.get('curve_id'), default='BLACK')
+        stem = f'{ts}_{curve_slug}_{capture_id}'
+
+        trace_points = data.get('trace_points')
+        if not isinstance(trace_points, list):
+            trace_points = []
+
+        image_path = _write_capture_image(data.get('image'), out_dir, stem)
+        payload_path = out_dir / f'{stem}.json'
+        summary_path = out_dir / 'captures.jsonl'
+        user = _current_user(require_access=False)
+
+        payload_record = {
+            'capture_id': capture_id,
+            'ts_utc': now.isoformat() + 'Z',
+            'curve_id': data.get('curve_id'),
+            'trace_key': data.get('trace_key'),
+            'status': data.get('status') or 'needs_review',
+            'capture_source': data.get('capture_source'),
+            'capture_event': data.get('capture_event'),
+            'capture_session_id': data.get('capture_session_id'),
+            'auto_capture': bool(data.get('auto_capture')),
+            'download_format': data.get('download_format'),
+            'notes': data.get('notes'),
+            'trace_rows': len(trace_points),
+            'image_path': str(image_path) if image_path else None,
+            'user_id': user['id'] if user else None,
+            'payload': data,
+        }
+
+        payload_path.write_text(
+            json.dumps(payload_record, ensure_ascii=False, indent=2),
+            encoding='utf-8'
+        )
+
+        summary_record = {
+            'capture_id': capture_id,
+            'ts_utc': payload_record['ts_utc'],
+            'curve_id': payload_record['curve_id'],
+            'trace_key': payload_record['trace_key'],
+            'status': payload_record['status'],
+            'capture_source': payload_record['capture_source'],
+            'capture_event': payload_record['capture_event'],
+            'capture_session_id': payload_record['capture_session_id'],
+            'auto_capture': payload_record['auto_capture'],
+            'download_format': payload_record['download_format'],
+            'notes': payload_record['notes'],
+            'trace_rows': payload_record['trace_rows'],
+            'image_path': payload_record['image_path'],
+            'payload_path': str(payload_path),
+            'user_id': payload_record['user_id'],
+        }
+        with summary_path.open('a', encoding='utf-8') as f:
+            f.write(json.dumps(summary_record, ensure_ascii=False) + '\n')
+
+        return jsonify({
+            'success': True,
+            'capture_id': capture_id,
+            'trace_rows': len(trace_points),
+            'payload_path': str(payload_path),
+        })
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 @app.route('/api/learn_from_user', methods=['POST'])
 def learn_from_user():
     """Record user curve adjustments for learning (Phase 1)"""
@@ -8889,9 +9084,9 @@ if __name__ == '__main__':
     os.makedirs('templates', exist_ok=True)
     os.makedirs('static', exist_ok=True)
     
-    print("🚀 Starting TIFF→LAS Web App")
-    print(f"📊 Google Vision API: {'✅ Available' if VISION_API_AVAILABLE else '⚠️  Not configured'}")
-    print("🌐 Open: http://localhost:5000")
+    print("Starting TIFF-to-LAS Web App")
+    print(f"Google Vision API: {'Available' if VISION_API_AVAILABLE else 'Not configured'}")
+    print("Open: http://localhost:5000")
     
     app.run(debug=False, use_reloader=False, host='0.0.0.0', port=5000)
     app.run(debug=False, use_reloader=False, host='0.0.0.0', port=5000)

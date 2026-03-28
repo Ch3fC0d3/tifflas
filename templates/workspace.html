@@ -401,6 +401,8 @@
             overflow-y: auto;
             position: sticky;
             top: 20px;
+            padding-right: 8px;
+            scrollbar-gutter: stable;
         }
         .curve-pane .step {
             margin-bottom: 0;
@@ -415,6 +417,18 @@
         .curve-pane .form-group select {
             font-size: 0.85rem;
             padding: 6px 8px;
+        }
+        .control-pane input[type="number"],
+        .curve-pane input[type="number"] {
+            appearance: auto;
+            color-scheme: dark;
+            padding-right: 32px;
+        }
+        .control-pane input[type="number"]::-webkit-inner-spin-button,
+        .control-pane input[type="number"]::-webkit-outer-spin-button,
+        .curve-pane input[type="number"]::-webkit-inner-spin-button,
+        .curve-pane input[type="number"]::-webkit-outer-spin-button {
+            opacity: 1;
         }
         .control-pane .btn,
         .curve-pane .btn {
@@ -499,12 +513,62 @@
         .curve-actions > input {
             flex: 0 0 100%;
         }
+        .curve-actions > .number-stepper {
+            flex: 0 0 100%;
+        }
         .curve-action {
             flex: 1 1 calc(50% - 8px);
             min-width: 0;
             display: flex;
             flex-direction: column;
             gap: 4px;
+        }
+        .number-stepper {
+            position: relative;
+            width: 100%;
+        }
+        .number-stepper input {
+            width: 100%;
+            padding-right: 42px;
+            appearance: textfield;
+            -moz-appearance: textfield;
+            color-scheme: auto;
+        }
+        .number-stepper input::-webkit-inner-spin-button,
+        .number-stepper input::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            appearance: none;
+            margin: 0;
+            display: none;
+        }
+        .number-stepper-controls {
+            position: absolute;
+            top: 50%;
+            right: 10px;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            z-index: 2;
+        }
+        .number-stepper-btn {
+            width: 18px;
+            height: 14px;
+            border: 1px solid #64748b;
+            border-radius: 6px;
+            background: #0f172a;
+            color: #f8fafc;
+            font-size: 9px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 0;
+        }
+        .number-stepper-btn:hover {
+            background: #1e293b;
+            border-color: #93c5fd;
         }
         .curve-action .btn {
             width: fit-content;
@@ -917,8 +981,9 @@
         .gap-3 { gap: 12px; }
         .grid-2-col { display: grid; grid-template-columns: 1fr 1fr; }
     </style>
+    <link rel="stylesheet" href="/static/home_backdrop.css">
 </head>
-<body>
+<body class="site-backdrop">
     <div id="introModalBackdrop" class="intro-backdrop hidden" onclick="closeIntroModal()">
         <div id="introModal" class="intro-modal" onclick="event.stopPropagation()">
             <button type="button" class="intro-modal-close" onclick="closeIntroModal()" aria-label="Close">×</button>
@@ -1251,10 +1316,22 @@
                                     <label>Curve Configuration</label>
                                     <div class="curve-actions">
                                         <label for="numCurves">Number of Curves (max 6)</label>
-                                        <input type="number" id="numCurves" value="3" min="0" max="6">
+                                        <div class="number-stepper">
+                                            <input type="number" id="numCurves" value="3" min="0" max="6">
+                                            <div class="number-stepper-controls">
+                                                <button type="button" class="number-stepper-btn" onclick="adjustNumberInput('numCurves', 1)" aria-label="Increase number of curves">&#9650;</button>
+                                                <button type="button" class="number-stepper-btn" onclick="adjustNumberInput('numCurves', -1)" aria-label="Decrease number of curves">&#9660;</button>
+                                            </div>
+                                        </div>
                                         
                                         <label for="snapThreshold" class="mt-2">Snap Threshold (1.2 = 20% brighter)</label>
-                                        <input type="number" id="snapThreshold" value="1.20" step="0.05" min="0.1" max="5.0" title="Lower (<1.0) = Greedier, Higher (>1.0) = Stricter">
+                                        <div class="number-stepper">
+                                            <input type="number" id="snapThreshold" value="1.20" step="0.05" min="0.1" max="5.0" title="Lower (<1.0) = Greedier, Higher (>1.0) = Stricter">
+                                            <div class="number-stepper-controls">
+                                                <button type="button" class="number-stepper-btn" onclick="adjustNumberInput('snapThreshold', 1)" aria-label="Increase snap threshold">&#9650;</button>
+                                                <button type="button" class="number-stepper-btn" onclick="adjustNumberInput('snapThreshold', -1)" aria-label="Decrease snap threshold">&#9660;</button>
+                                            </div>
+                                        </div>
 
                                         <div class="curve-action">
                                             <button class="btn" type="button" onclick="aiAutoCurves()">✨ AI auto-setup curves</button>
@@ -1374,7 +1451,7 @@
         let imageHeight = 0;
         let detectedTracks = [];
         let allTracks = [];
-        let primaryRegion = null; // { left_px, right_px, track_indices }
+        let primaryRegion = null; // { left_px, right_px, top_px, bottom_px, track_indices }
         let ocrSuggestions = null;
         let detectedText = null;
         let panelSelectMode = false;
@@ -1607,7 +1684,7 @@
             }
         }
 
-        const DEPTH_SESSION_KEY = 'turbotifflas_depth_config_v1';
+        const DEPTH_SESSION_KEY = 'turbotifflas_depth_config_v2';
         const INTRO_SESSION_KEY = 'turbotifflas_intro_seen_v1';
 
         function updateDisplayBaseScale() {
@@ -2404,6 +2481,10 @@
                 Number.isFinite(Number(primaryRegion.left_px)) &&
                 Number.isFinite(Number(primaryRegion.right_px)) &&
                 Number(primaryRegion.right_px) > Number(primaryRegion.left_px);
+            const hasRegionY = primaryRegion &&
+                Number.isFinite(Number(primaryRegion.top_px)) &&
+                Number.isFinite(Number(primaryRegion.bottom_px)) &&
+                Number(primaryRegion.bottom_px) > Number(primaryRegion.top_px);
 
             const usingFullDepth = !Number.isFinite(topVal) || !Number.isFinite(bottomVal) ||
                 (Math.round(topVal) <= 0 && Math.round(bottomVal) >= imageHeight - 1);
@@ -2419,9 +2500,11 @@
                 ? `X: ${Math.round(primaryRegion.left_px)}–${Math.round(primaryRegion.right_px)}`
                 : 'full width';
 
-            const depthPart = (Number.isFinite(topVal) && Number.isFinite(bottomVal))
+            const depthPart = hasRegionY
+                ? `Y: ${Math.round(primaryRegion.top_px)}–${Math.round(primaryRegion.bottom_px)}`
+                : ((Number.isFinite(topVal) && Number.isFinite(bottomVal))
                 ? `Y: ${Math.round(topVal)}–${Math.round(bottomVal)}`
-                : 'full depth';
+                : 'full depth');
 
             summaryEl.textContent = `Panel: ${regionPart}, ${depthPart} • Tracks in use: ${trackCount}`;
         }
@@ -4812,7 +4895,11 @@
             try {
                 const cfg = getDepthConfigFromInputs();
                 if (!cfg) return;
-                sessionStorage.setItem(DEPTH_SESSION_KEY, JSON.stringify(cfg));
+                sessionStorage.setItem(DEPTH_SESSION_KEY, JSON.stringify({
+                    ...cfg,
+                    image_width: Number.isFinite(imageWidth) ? imageWidth : null,
+                    image_height: Number.isFinite(imageHeight) ? imageHeight : null,
+                }));
             } catch (e) {
                 // ignore storage errors
             }
@@ -4821,25 +4908,44 @@
         function loadDepthConfigFromSession() {
             try {
                 const raw = sessionStorage.getItem(DEPTH_SESSION_KEY);
-                if (!raw) return false;
+                if (!raw) return null;
                 const cfg = JSON.parse(raw);
-                if (!cfg) return false;
+                if (!cfg) return null;
                 const topPxInput = document.getElementById('topPx');
                 const bottomPxInput = document.getElementById('bottomPx');
                 const topDepthInput = document.getElementById('topDepth');
                 const bottomDepthInput = document.getElementById('bottomDepth');
                 const depthUnit = document.getElementById('depthUnit');
                 if (!topPxInput || !bottomPxInput || !topDepthInput || !bottomDepthInput || !depthUnit) {
-                    return false;
+                    return null;
                 }
-                if (Number.isFinite(cfg.top_px)) topPxInput.value = cfg.top_px;
-                if (Number.isFinite(cfg.bottom_px)) bottomPxInput.value = cfg.bottom_px;
+
+                const savedImageHeight = Number(cfg.image_height);
+                const currentImageHeight = Number(imageHeight);
+                if (!Number.isFinite(savedImageHeight) || savedImageHeight <= 0 ||
+                    !Number.isFinite(currentImageHeight) || currentImageHeight <= 0) {
+                    return null;
+                }
+
+                const scaleY = currentImageHeight / savedImageHeight;
+                const exactReuse = Math.abs(scaleY - 1) <= 0.02;
+
+                const scaleDepthPx = (value) => {
+                    const px = Number(value);
+                    if (!Number.isFinite(px)) return null;
+                    return Math.round(clamp(px * scaleY, 0, currentImageHeight - 1));
+                };
+
+                const scaledTopPx = scaleDepthPx(cfg.top_px);
+                const scaledBottomPx = scaleDepthPx(cfg.bottom_px);
+                if (Number.isFinite(scaledTopPx)) topPxInput.value = scaledTopPx;
+                if (Number.isFinite(scaledBottomPx)) bottomPxInput.value = scaledBottomPx;
                 if (Number.isFinite(cfg.top_depth)) topDepthInput.value = cfg.top_depth;
                 if (Number.isFinite(cfg.bottom_depth)) bottomDepthInput.value = cfg.bottom_depth;
                 if (cfg.unit) depthUnit.value = cfg.unit;
-                return true;
+                return exactReuse ? 'exact' : 'scaled';
             } catch (e) {
-                return false;
+                return null;
             }
         }
 
@@ -4904,6 +5010,38 @@
                 handleFile(e.target.files[0]);
             }
         });
+
+        function adjustNumberInput(inputId, direction) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+
+            const stepAttr = Number(input.step);
+            const step = Number.isFinite(stepAttr) && stepAttr > 0 ? stepAttr : 1;
+            const minAttr = Number(input.min);
+            const maxAttr = Number(input.max);
+            let value = Number(input.value);
+
+            if (!Number.isFinite(value)) {
+                value = Number.isFinite(minAttr) ? minAttr : 0;
+            }
+
+            value += direction > 0 ? step : -step;
+            if (Number.isFinite(minAttr)) value = Math.max(minAttr, value);
+            if (Number.isFinite(maxAttr)) value = Math.min(maxAttr, value);
+
+            const stepText = String(input.step || '');
+            let decimals = 0;
+            if (stepText.includes('e-')) {
+                decimals = parseInt(stepText.split('e-')[1], 10) || 0;
+            } else if (stepText.includes('.')) {
+                decimals = stepText.split('.')[1].length;
+            }
+
+            input.value = decimals > 0 ? value.toFixed(decimals) : String(Math.round(value));
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.focus();
+        }
 
         const numCurvesInputEl = document.getElementById('numCurves');
         if (numCurvesInputEl) {
@@ -5613,14 +5751,6 @@
                     return;
                 }
 
-                // Use the last known primaryRegion horizontally and full vertical extent from drag
-                // Compute current mouse position as second corner
-                // (We do a small trick: read mouse position from last move via DOM, but if unavailable we just keep existing primaryRegion.)
-
-                // Derive vertical top/bottom from the drag start and current mouse location
-                // For robustness we clamp into image coordinates again.
-                const lastX = panelSelectStart.x;
-                const lastY = panelSelectStart.y;
                 if (!primaryRegion || !Number.isFinite(Number(primaryRegion.left_px)) || !Number.isFinite(Number(primaryRegion.right_px))) {
                     primaryRegionDrag.edge = null;
                     return;
@@ -5633,9 +5763,7 @@
                     return;
                 }
 
-                // For vertical, use the marquee's own top/bottom if available;
-                // otherwise fall back to the full image height. Depth inputs are
-                // not touched here so the user can configure them after crop.
+                // Keep the user-drawn vertical bounds for panel cropping/re-analysis.
                 let topPx = 0;
                 let bottomPx = imageHeight - 1;
                 if (primaryRegion && Number.isFinite(primaryRegion.top_px) && Number.isFinite(primaryRegion.bottom_px) && primaryRegion.bottom_px > primaryRegion.top_px) {
@@ -5816,7 +5944,11 @@
                     const appliedHints = applyOcrSuggestions();
                     const usedSessionDepth = loadDepthConfigFromSession();
                     const aiNote = appliedHints ? ' ✨ AI suggestions applied.' : '';
-                    const sessionNote = usedSessionDepth ? ' (reused last depth setup this session)' : '';
+                    const sessionNote = usedSessionDepth === 'exact'
+                        ? ' (reused last depth setup this session)'
+                        : (usedSessionDepth === 'scaled'
+                            ? ' (scaled last depth setup to this image)'
+                            : '');
 
                     showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}${sessionNote}`, 'success');
                     renderAiInsights();
@@ -7567,19 +7699,22 @@
             const xDomRight = (rightPx / denomX) * rect.width;
             const widthDom = xDomRight - xDom;
 
-            // Vertical placement follows the marquee panel selection. If the
-            // user has dragged a box with top/bottom pixels, use those; otherwise
-            // fall back to the full image height. Depth configuration is
-            // independent and handled by depth overlays.
+            // Vertical placement follows the user-drawn marquee bounds.
             let topDom = 0;
             let heightDom = rect.height;
-        // Height constraint removed so primary region spans the entire log
-        // if (primaryRegion && ...) { ... }
-        //     const scaleY = ...
-        //     ...
-        // }
-        // Height constraint removed
-        // Height constraint removed
+            if (
+                Number.isFinite(Number(primaryRegion.top_px)) &&
+                Number.isFinite(Number(primaryRegion.bottom_px)) &&
+                Number(primaryRegion.bottom_px) > Number(primaryRegion.top_px)
+            ) {
+                const denomY = Math.max(1, imageHeight - 1);
+                const topPx = Math.max(0, Number(primaryRegion.top_px));
+                const bottomPx = Math.min(imageHeight - 1, Number(primaryRegion.bottom_px));
+                const topDomPx = (topPx / denomY) * rect.height;
+                const bottomDomPx = (bottomPx / denomY) * rect.height;
+                topDom = topDomPx;
+                heightDom = Math.max(1, bottomDomPx - topDomPx);
+            }
 
             const box = document.createElement('div');
             box.className = 'primary-region-overlay';

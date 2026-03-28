@@ -29,23 +29,24 @@
     </script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="/static/home_backdrop.css">
 </head>
-<body class="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+<body class="site-backdrop min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
 
     <div class="sm:mx-auto sm:w-full sm:max-w-md">
-        <a href="/" class="flex justify-center mb-6 text-slate-500 hover:text-slate-700 items-center">
+        <a href="/" class="flex justify-center mb-6 text-slate-300 hover:text-white items-center">
             <i data-lucide="arrow-left" class="h-4 w-4 mr-2"></i> Back to Home
         </a>
-        <h2 class="mt-6 text-center text-3xl font-extrabold text-slate-900">
+        <h2 class="mt-6 text-center text-3xl font-extrabold text-white">
             Sign in to your account
         </h2>
-        <p class="mt-2 text-center text-sm text-slate-600">
+        <p class="mt-2 text-center text-sm text-slate-300">
             Access your TifLAS workspace and billing portal
         </p>
     </div>
 
     <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div class="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+        <div class="border border-slate-700 bg-slate-900/85 py-8 px-4 shadow-2xl backdrop-blur-sm sm:rounded-lg sm:px-10">
             <form class="space-y-6" action="/login" method="POST">
                 <input type="hidden" name="next" value="{{ next_url or '' }}">
                 
@@ -65,7 +66,7 @@
                 {% endwith %}
                 
                 <div>
-                    <label for="email" class="block text-sm font-medium text-slate-700">
+                    <label for="email" class="block text-sm font-medium text-slate-200">
                         Email address
                     </label>
                     <div class="mt-1 relative rounded-md shadow-sm">
@@ -78,14 +79,14 @@
                             type="email"
                             autocomplete="email"
                             required
-                            class="focus:ring-primary-500 focus:border-primary-500 block w-full pl-10 sm:text-sm border-slate-300 rounded-md py-2 border"
+                            class="focus:ring-primary-500 focus:border-primary-500 block w-full pl-10 sm:text-sm border-slate-700 bg-slate-950 text-white rounded-md py-2 border"
                             placeholder="you@example.com"
                         >
                     </div>
                 </div>
 
                 <div>
-                    <label for="password" class="block text-sm font-medium text-slate-700">
+                    <label for="password" class="block text-sm font-medium text-slate-200">
                         Password
                     </label>
                     <div class="mt-1 relative rounded-md shadow-sm">
@@ -98,7 +99,7 @@
                             type="password"
                             autocomplete="current-password"
                             required
-                            class="focus:ring-primary-500 focus:border-primary-500 block w-full pl-10 sm:text-sm border-slate-300 rounded-md py-2 border"
+                            class="focus:ring-primary-500 focus:border-primary-500 block w-full pl-10 sm:text-sm border-slate-700 bg-slate-950 text-white rounded-md py-2 border"
                             placeholder="••••••••"
                         >
                     </div>
@@ -112,13 +113,13 @@
                             type="checkbox"
                             class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-slate-300 rounded"
                         >
-                        <label for="remember-me" class="ml-2 block text-sm text-slate-900">
+                        <label for="remember-me" class="ml-2 block text-sm text-slate-200">
                             Remember me
                         </label>
                     </div>
 
                     <div class="text-sm">
-                        <a href="#" class="font-medium text-primary-600 hover:text-primary-500">
+                        <a href="#" class="font-medium text-primary-300 hover:text-primary-200">
                             Forgot your password?
                         </a>
                     </div>
@@ -137,10 +138,10 @@
             <div class="mt-6">
                 <div class="relative">
                     <div class="absolute inset-0 flex items-center">
-                        <div class="w-full border-t border-slate-300"></div>
+                        <div class="w-full border-t border-slate-700"></div>
                     </div>
                     <div class="relative flex justify-center text-sm">
-                        <span class="px-2 bg-white text-slate-500">
+                        <span class="px-2 bg-slate-900/85 text-slate-400">
                             Don't have an account?
                         </span>
                     </div>
@@ -149,7 +150,7 @@
                 <div class="mt-6">
                     <a
                         href="/signup"
-                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100"
+                        class="w-full flex justify-center py-2 px-4 border border-slate-700 rounded-md shadow-sm text-sm font-medium text-slate-100 bg-slate-800 hover:bg-slate-700"
                     >
                         Create account
                     </a>

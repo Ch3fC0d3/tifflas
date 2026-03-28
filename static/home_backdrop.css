@@ -1,0 +1,39 @@
+body.site-backdrop {
+    background: #0f172a !important;
+    min-height: 100vh;
+    position: relative;
+    isolation: isolate;
+}
+
+body.site-backdrop::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 10% 18%, rgba(74, 222, 128, 0.16), transparent 0 16%, transparent 26%),
+        radial-gradient(circle at 82% 12%, rgba(56, 189, 248, 0.18), transparent 0 15%, transparent 28%),
+        radial-gradient(circle at 42% 6%, rgba(251, 146, 60, 0.14), transparent 0 10%, transparent 22%),
+        linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.94) 100%),
+        repeating-linear-gradient(90deg, rgba(148, 163, 184, 0.05) 0 1px, transparent 1px 120px),
+        repeating-linear-gradient(180deg, rgba(148, 163, 184, 0.04) 0 1px, transparent 1px 56px);
+}
+
+body.site-backdrop::after {
+    content: "";
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 72px;
+    height: 220px;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        linear-gradient(180deg, rgba(132, 204, 22, 0.16) 0%, rgba(132, 204, 22, 0.08) 22%, rgba(15, 23, 42, 0) 100%),
+        linear-gradient(90deg, rgba(163, 230, 53, 0) 0%, rgba(163, 230, 53, 0.72) 50%, rgba(163, 230, 53, 0) 100%);
+    background-repeat: no-repeat;
+    background-size: 100% 100%, 100% 2px;
+    background-position: center top, center 90px;
+    box-shadow: 0 0 80px rgba(132, 204, 22, 0.08);
+}

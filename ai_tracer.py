@@ -52,11 +52,11 @@ class AITracer:
                 self.model = CurveTraceNet().to(self.device)
                 self.model.load_state_dict(ckpt['state_dict'])
                 self.model.eval()
-                print(f"✅ AI Model loaded from {model_path} (Device: {self.device})")
+                print(f"[OK] AI Model loaded from {model_path} (Device: {self.device})")
             except Exception as e:
-                print(f"⚠️ Failed to load AI model: {e}")
+                print(f"[WARN] Failed to load AI model: {e}")
         else:
-            print(f"⚠️ AI model not found at {model_path}")
+            print(f"[WARN] AI model not found at {model_path}")
 
     def is_available(self):
         return self.model is not None
