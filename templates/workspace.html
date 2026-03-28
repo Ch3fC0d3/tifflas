@@ -624,6 +624,44 @@
             font-size: 0.85em;
             color: #94a3b8;
         }
+        .ai-review-callout {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(34, 197, 94, 0.35);
+            background: rgba(15, 23, 42, 0.65);
+            margin-bottom: 12px;
+        }
+        .ai-review-callout.applied {
+            border-color: rgba(14, 165, 233, 0.35);
+        }
+        .ai-review-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+        }
+        .ai-review-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            color: #dcfce7;
+            background: rgba(34, 197, 94, 0.16);
+            border: 1px solid rgba(34, 197, 94, 0.35);
+        }
+        .ai-review-badge.applied {
+            color: #dbeafe;
+            background: rgba(59, 130, 246, 0.16);
+            border-color: rgba(59, 130, 246, 0.35);
+        }
         .header-ocr-grid {
             display: flex;
             flex-wrap: wrap;
@@ -1262,7 +1300,7 @@
                                 <label>Select log panel</label>
                                 <div class="flex-wrap-center mt-1">
                                     <button type="button" class="btn btn-sm" onclick="beginPanelSelection()">Select panel from image</button>
-                                    <button type="button" class="btn btn-sm" onclick="clearPanelSelection()">Clear selection</button>
+                                    <button type="button" class="btn btn-sm" onclick="clearPanelSelection()">Reset to full image</button>
                                 </div>
                                 <div class="hint-text" id="selectionSummary">No panel selected. Using full image width and depth.</div>
                                 <div class="hint-text">Click and drag directly on the image to draw a selection box around the log copy you want to digitize.</div>
@@ -1333,11 +1371,8 @@
                                             </div>
                                         </div>
 
-                                        <div class="curve-action">
-                                            <button class="btn" type="button" onclick="aiAutoCurves()">✨ AI auto-setup curves</button>
-                                            <div class="hint-text">
-                                                Let the AI set up depth, tracks, and curves in one step; you can still review and edit before digitizing.
-                                            </div>
+                                        <div class="hint-text">
+                                            AI suggestions stay in Step 5 for review until you choose to apply them.
                                         </div>
                                     </div>
                                 </div>
@@ -1453,6 +1488,7 @@
         let allTracks = [];
         let primaryRegion = null; // { left_px, right_px, top_px, bottom_px, track_indices }
         let ocrSuggestions = null;
+        let aiReviewAccepted = false;
         let detectedText = null;
         let panelSelectMode = false;
         let panelSelectStart = null; // { x, y } first corner of panel selection
@@ -1491,7 +1527,6 @@
         let pinnedDepthIndices = new Map();
         let lastMouseImgX = null;
         let lastMouseImgY = null;
-        let currentUploadSignature = null;
 
         function sanitizeTrackPairs(trackPairs) {
             if (!Array.isArray(trackPairs)) return [];
@@ -1685,7 +1720,6 @@
             }
         }
 
-        const DEPTH_SESSION_KEY = 'turbotifflas_depth_config_v3';
         const INTRO_SESSION_KEY = 'turbotifflas_intro_seen_v1';
 
         function updateDisplayBaseScale() {
@@ -2393,14 +2427,12 @@
             clearPrimaryRegionOverlay();
             renderDepthOverlays();
 
+            aiReviewAccepted = false;
             autoConfigureCurves();
             generateCurveInputs();
-            // When clearing the panel, keep the user's depth config intact.
-            // Only re-apply OCR curve hints.
-            applyOcrSuggestions({ allowDepth: false, allowCurves: true });
             renderAiInsights();
             updateSelectionSummary();
-            showStatus('Cleared panel selection: using full image width and depth.', 'info');
+            showStatus('Reset to full image width and depth.', 'info');
         }
 
         function beginHeaderSelection() {
@@ -2491,6 +2523,8 @@
                 (Math.round(topVal) <= 0 && Math.round(bottomVal) >= imageHeight - 1);
 
             const trackCount = Array.isArray(detectedTracks) ? detectedTracks.length : 0;
+            const coverageMetrics = getDepthCoverageMetrics({ top_px: topVal, bottom_px: bottomVal });
+            const coveragePart = coverageMetrics ? `Depth coverage: ${Math.max(1, Math.round(coverageMetrics.coverage * 100))}%` : null;
 
             if (!hasRegion && usingFullDepth) {
                 summaryEl.textContent = 'No panel selected. Using full image width and depth.';
@@ -2507,7 +2541,7 @@
                 ? `Y: ${Math.round(topVal)}–${Math.round(bottomVal)}`
                 : 'full depth');
 
-            summaryEl.textContent = `Panel: ${regionPart}, ${depthPart} • Tracks in use: ${trackCount}`;
+            summaryEl.textContent = `Panel: ${regionPart}, ${depthPart}${coveragePart ? ` • ${coveragePart}` : ''} • Tracks in use: ${trackCount}`;
         }
 
         function snapDepthToLabels(yImg) {
@@ -2551,6 +2585,54 @@
                 bottom_depth: bottomDepthVal,
                 unit: unitVal
             };
+        }
+
+        function hasReviewableAiSuggestions() {
+            return !!(
+                ocrSuggestions &&
+                (
+                    ocrSuggestions.depth ||
+                    (Array.isArray(ocrSuggestions.curves) && ocrSuggestions.curves.length)
+                )
+            );
+        }
+
+        function getDepthCoverageMetrics(depthCfg) {
+            const topPx = Number(depthCfg && depthCfg.top_px);
+            const bottomPx = Number(depthCfg && depthCfg.bottom_px);
+            if (!Number.isFinite(topPx) || !Number.isFinite(bottomPx) || !Number.isFinite(imageHeight) || imageHeight <= 1) {
+                return null;
+            }
+
+            const fullTop = 0;
+            const fullBottom = imageHeight - 1;
+            const clampedTop = clamp(topPx, fullTop, fullBottom);
+            const clampedBottom = clamp(bottomPx, fullTop, fullBottom);
+            const spanPx = Math.max(0, clampedBottom - clampedTop);
+            const fullSpanPx = Math.max(1, fullBottom - fullTop);
+            const coverage = spanPx / fullSpanPx;
+
+            return {
+                topPx: Math.round(clampedTop),
+                bottomPx: Math.round(clampedBottom),
+                spanPx: Math.round(spanPx),
+                fullSpanPx: Math.round(fullSpanPx),
+                coverage,
+            };
+        }
+
+        function getDepthCoverageWarning(depthCfg) {
+            const metrics = getDepthCoverageMetrics(depthCfg);
+            if (!metrics) return null;
+
+            const tallImage = imageHeight >= 1400;
+            const suspiciousCoverage = metrics.coverage < 0.6;
+            if (!tallImage || !suspiciousCoverage) {
+                return null;
+            }
+
+            const percent = Math.max(1, Math.round(metrics.coverage * 100));
+            return `You are only digitizing ${percent}% of the image height (pixels ${metrics.topPx}-${metrics.bottomPx} of 0-${imageHeight - 1}). This often makes traces stop early. Continue anyway?`;
         }
 
         function pixelToDepthFromConfig(yImg, depthCfg) {
@@ -4892,99 +4974,6 @@
             }
         }
 
-        function saveDepthConfigToSession() {
-            try {
-                const cfg = getDepthConfigFromInputs();
-                if (!cfg) return;
-                sessionStorage.setItem(DEPTH_SESSION_KEY, JSON.stringify({
-                    ...cfg,
-                    image_width: Number.isFinite(imageWidth) ? imageWidth : null,
-                    image_height: Number.isFinite(imageHeight) ? imageHeight : null,
-                    upload_name: currentUploadSignature && currentUploadSignature.name ? currentUploadSignature.name : null,
-                    upload_size: currentUploadSignature && Number.isFinite(currentUploadSignature.size) ? currentUploadSignature.size : null,
-                    upload_last_modified: currentUploadSignature && Number.isFinite(currentUploadSignature.lastModified) ? currentUploadSignature.lastModified : null,
-                }));
-            } catch (e) {
-                // ignore storage errors
-            }
-        }
-
-        function loadDepthConfigFromSession() {
-            try {
-                const raw = sessionStorage.getItem(DEPTH_SESSION_KEY);
-                if (!raw) return null;
-                const cfg = JSON.parse(raw);
-                if (!cfg) return null;
-                const topPxInput = document.getElementById('topPx');
-                const bottomPxInput = document.getElementById('bottomPx');
-                const topDepthInput = document.getElementById('topDepth');
-                const bottomDepthInput = document.getElementById('bottomDepth');
-                const depthUnit = document.getElementById('depthUnit');
-                if (!topPxInput || !bottomPxInput || !topDepthInput || !bottomDepthInput || !depthUnit) {
-                    return null;
-                }
-
-                const savedImageWidth = Number(cfg.image_width);
-                const savedImageHeight = Number(cfg.image_height);
-                const currentImageWidth = Number(imageWidth);
-                const currentImageHeight = Number(imageHeight);
-                if (!Number.isFinite(savedImageWidth) || savedImageWidth <= 0 ||
-                    !Number.isFinite(savedImageHeight) || savedImageHeight <= 0 ||
-                    !Number.isFinite(currentImageWidth) || currentImageWidth <= 0 ||
-                    !Number.isFinite(currentImageHeight) || currentImageHeight <= 0) {
-                    return null;
-                }
-
-                const savedName = cfg.upload_name != null ? String(cfg.upload_name) : '';
-                const currentName = currentUploadSignature && currentUploadSignature.name ? String(currentUploadSignature.name) : '';
-                const savedSize = Number(cfg.upload_size);
-                const currentSize = currentUploadSignature ? Number(currentUploadSignature.size) : NaN;
-                const savedLastModified = Number(cfg.upload_last_modified);
-                const currentLastModified = currentUploadSignature ? Number(currentUploadSignature.lastModified) : NaN;
-
-                const haveSavedSignature = !!savedName || Number.isFinite(savedSize) || Number.isFinite(savedLastModified);
-                const haveCurrentSignature = !!currentName || Number.isFinite(currentSize) || Number.isFinite(currentLastModified);
-                if (haveSavedSignature && haveCurrentSignature) {
-                    const sameName = !!savedName && !!currentName && savedName === currentName;
-                    const sameSize = Number.isFinite(savedSize) && Number.isFinite(currentSize) && savedSize === currentSize;
-                    const sameLastModified =
-                        Number.isFinite(savedLastModified) &&
-                        Number.isFinite(currentLastModified) &&
-                        savedLastModified === currentLastModified;
-                    if (!sameName || !sameSize || !sameLastModified) {
-                        return null;
-                    }
-                }
-
-                const scaleX = currentImageWidth / savedImageWidth;
-                const scaleY = currentImageHeight / savedImageHeight;
-                if (Math.abs(scaleX - scaleY) > 0.03) {
-                    return null;
-                }
-                const exactReuse = Math.abs(scaleX - 1) <= 0.02 && Math.abs(scaleY - 1) <= 0.02;
-
-                const scaleDepthPx = (value) => {
-                    const px = Number(value);
-                    if (!Number.isFinite(px)) return null;
-                    return Math.round(clamp(px * scaleY, 0, currentImageHeight - 1));
-                };
-
-                const scaledTopPx = scaleDepthPx(cfg.top_px);
-                const scaledBottomPx = scaleDepthPx(cfg.bottom_px);
-                if (!Number.isFinite(scaledTopPx) || !Number.isFinite(scaledBottomPx) || scaledBottomPx <= scaledTopPx) {
-                    return null;
-                }
-                if (Number.isFinite(scaledTopPx)) topPxInput.value = scaledTopPx;
-                if (Number.isFinite(scaledBottomPx)) bottomPxInput.value = scaledBottomPx;
-                if (Number.isFinite(cfg.top_depth)) topDepthInput.value = cfg.top_depth;
-                if (Number.isFinite(cfg.bottom_depth)) bottomDepthInput.value = cfg.bottom_depth;
-                if (cfg.unit) depthUnit.value = cfg.unit;
-                return exactReuse ? 'exact' : 'scaled';
-            } catch (e) {
-                return null;
-            }
-        }
-
         const curveTypeDefaults = {
             GR:   { mnemonic: 'GR',   unit: 'API' },
             RHOB: { mnemonic: 'RHOB', unit: 'G/CC' },
@@ -5846,8 +5835,8 @@
                         const data = await resp.json();
                         if (data.success) {
                             ocrSuggestions = data.ocr_suggestions || ocrSuggestions;
+                            aiReviewAccepted = false;
                             detectedText = data.detected_text || detectedText;
-                            applyOcrSuggestions();
                             renderAiInsights();
                         }
                     }
@@ -5858,7 +5847,8 @@
                 renderPrimaryRegionOverlay();
                 renderDepthOverlays();
                 updateSelectionSummary();
-                showStatus(`Using ${detectedTracks.length || 0} tracks in selected panel.`, 'success');
+                const aiReviewNote = hasReviewableAiSuggestions() ? ' AI suggestions were updated in Step 5 for review.' : '';
+                showStatus(`Using ${detectedTracks.length || 0} tracks in selected panel.${aiReviewNote}`, 'success');
                 return;
             }
 
@@ -5887,12 +5877,6 @@
                 return;
             }
 
-            currentUploadSignature = {
-                name: file && file.name ? String(file.name) : '',
-                size: file && Number.isFinite(Number(file.size)) ? Number(file.size) : null,
-                lastModified: file && Number.isFinite(Number(file.lastModified)) ? Number(file.lastModified) : null,
-            };
-
             primaryRegion = null;
             panelSelectMode = false;
             panelSelectStart = null;
@@ -5905,6 +5889,7 @@
             detectedTracks = [];
             allTracks = [];
             ocrSuggestions = null;
+            aiReviewAccepted = false;
             detectedText = null;
             curveEdgePick = null;
             trackOverlayDrag = null;
@@ -5975,7 +5960,8 @@
                     // Show Steps 2 & 3 tab by default once the image is loaded
                     setCalibrationTab('calibPanel-main');
                     
-                    // Pre-fill with defaults then apply AI suggestions
+                    // Start fresh with full-image defaults. AI suggestions stay in
+                    // review mode until the user explicitly applies them.
                     document.getElementById('topPx').value = 0;
                     document.getElementById('bottomPx').value = imageHeight - 1;
                     document.getElementById('topDepth').value = 1000;
@@ -5983,9 +5969,10 @@
 
                     autoConfigureCurves();
                     generateCurveInputs();
-                    const appliedHints = applyOcrSuggestions();
-                    const aiNote = appliedHints ? ' ✨ AI suggestions applied.' : '';
-                    showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}`, 'success');
+                    const statusMessage = hasReviewableAiSuggestions()
+                        ? `✅ Image loaded: ${imageWidth}×${imageHeight}px. Review AI suggestions in Step 5 before applying them.`
+                        : `✅ Image loaded: ${imageWidth}×${imageHeight}px.`;
+                    showStatus(statusMessage, 'success');
                     renderAiInsights();
                     renderDepthOverlays();
                     updateSelectionSummary();
@@ -5999,7 +5986,7 @@
 
         function autoConfigureCurves() {
             let inferredCurves = detectedTracks.length;
-            if (!inferredCurves && ocrSuggestions && ocrSuggestions.curves) {
+            if (!inferredCurves && aiReviewAccepted && ocrSuggestions && ocrSuggestions.curves) {
                 inferredCurves = ocrSuggestions.curves.length;
             }
             if (inferredCurves) {
@@ -7136,7 +7123,7 @@
                 const rawTrack = (tracks && tracks[i]) || (detectedTracks && detectedTracks[i]) || null;
                 const track = (Array.isArray(rawTrack) && hasValidRange(Number(rawTrack[0]), Number(rawTrack[1]))) ? rawTrack : null;
 
-                const rawHint = (ocrSuggestions && ocrSuggestions.curves && ocrSuggestions.curves[i]) || null;
+                const rawHint = (aiReviewAccepted && ocrSuggestions && ocrSuggestions.curves && ocrSuggestions.curves[i]) || null;
                 const hintLeft = rawHint ? Number(rawHint.left_px) : NaN;
                 const hintRight = rawHint ? Number(rawHint.right_px) : NaN;
                 const hint = hasValidRange(hintLeft, hintRight) ? rawHint : null;
@@ -7653,6 +7640,38 @@
             }
 
             return applied;
+        }
+
+        function applySafeAiSuggestions() {
+            if (!hasReviewableAiSuggestions()) {
+                showStatus('No AI suggestions are available to apply.', 'info');
+                return;
+            }
+
+            aiReviewAccepted = true;
+
+            if (ocrSuggestions && Array.isArray(ocrSuggestions.curves) && ocrSuggestions.curves.length) {
+                const numCurvesInput = document.getElementById('numCurves');
+                if (numCurvesInput) {
+                    numCurvesInput.value = Math.min(6, Math.max(1, ocrSuggestions.curves.length));
+                }
+            }
+
+            generateCurveInputs();
+            const applied = applyOcrSuggestions({ allowDepth: true, allowCurves: true });
+            renderAiInsights();
+            renderDepthOverlays();
+            renderPrimaryRegionOverlay();
+            refreshTrackOverlaysFromCurves();
+            updateCurveScaleHints();
+            generateValidationReport();
+            updateSelectionSummary();
+
+            if (applied) {
+                showStatus('Applied safe AI suggestions. Depth values and curve tracks updated; the depth pixel window stayed under your control.', 'success');
+            } else {
+                showStatus('AI suggestions are already reflected, or there was nothing safe to apply.', 'info');
+            }
         }
 
         function clearLabelOverlays() {
@@ -9024,20 +9043,25 @@
         async function runDigitization() {
             const btn = document.getElementById('digitizeBtn');
             const downloadBtn = document.getElementById('downloadLasBtn');
-            if (btn) btn.disabled = true;
-            if (downloadBtn) downloadBtn.disabled = true;
-            startProcessingTimer();
 
             try {
                 const config = buildDigitizeConfigFromInputs();
                 if (!config) {
                     showStatus('Please enter valid top/bottom pixels and depth values before digitizing.', 'error');
-                    if (btn) btn.disabled = false;
                     return;
                 }
-                const depthCfg = config.depth;
 
-                saveDepthConfigToSession();
+                const depthCfg = config.depth;
+                const depthCoverageWarning = getDepthCoverageWarning(depthCfg);
+                if (depthCoverageWarning && !window.confirm(depthCoverageWarning)) {
+                    showStatus('Digitize cancelled. Adjust the depth window or reset to full image before trying again.', 'info');
+                    return;
+                }
+
+                if (btn) btn.disabled = true;
+                if (downloadBtn) downloadBtn.disabled = true;
+                startProcessingTimer();
+
                 renderDepthOverlays();
 
                 const previewFilters = getCurrentPreviewFilters();
@@ -9943,24 +9967,45 @@
             const panel = document.getElementById('aiInsightContent');
             insightsStep.classList.remove('hidden');
 
-            if (!ocrSuggestions || (!ocrSuggestions.depth && !(ocrSuggestions.curves && ocrSuggestions.curves.length))) {
+            if (!hasReviewableAiSuggestions()) {
                 panel.innerHTML = '<p>AI hints were not confident enough to suggest values for this image.</p>';
                 return;
             }
 
             const parts = [];
+            const reviewStateLabel = aiReviewAccepted ? 'Applied' : 'Pending review';
+            const reviewStateClass = aiReviewAccepted ? 'applied' : '';
+            const reviewText = aiReviewAccepted
+                ? 'These suggestions were applied to the form. You can still edit any field before digitizing.'
+                : 'These suggestions are review-only. Nothing changes in Steps 2-4 until you apply the safe suggestions button below.';
+
+            parts.push(`
+                <div class="ai-review-callout ${reviewStateClass}">
+                    <div>
+                        <strong>AI suggestions stay in review first.</strong>
+                        <div class="hint-text">${reviewText}</div>
+                    </div>
+                    <div class="ai-review-actions">
+                        <span class="ai-review-badge ${reviewStateClass}">${reviewStateLabel}</span>
+                        <button type="button" class="btn btn-sm" onclick="applySafeAiSuggestions()">${aiReviewAccepted ? 'Re-apply safe AI suggestions' : 'Apply safe AI suggestions'}</button>
+                    </div>
+                </div>
+            `);
 
             if (ocrSuggestions.depth) {
                 const d = ocrSuggestions.depth;
+                const topPxText = Number.isFinite(Number(d.top_px)) ? Math.round(Number(d.top_px)) : 'not suggested';
+                const bottomPxText = Number.isFinite(Number(d.bottom_px)) ? Math.round(Number(d.bottom_px)) : 'not suggested';
                 parts.push(`
                     <div class="insight-block">
                         <h3>Depth Scale</h3>
                         <ul>
-                            <li>Top pixel ≈ <strong>${Math.round(d.top_px)}</strong></li>
-                            <li>Bottom pixel ≈ <strong>${Math.round(d.bottom_px)}</strong></li>
+                            <li>Top pixel ≈ <strong>${topPxText}</strong></li>
+                            <li>Bottom pixel ≈ <strong>${bottomPxText}</strong></li>
                             <li>Top depth ≈ <strong>${d.top_depth}</strong></li>
                             <li>Bottom depth ≈ <strong>${d.bottom_depth}</strong></li>
                         </ul>
+                        <div class="hint-text">Safe apply uses the depth values here but keeps your current top/bottom pixel window.</div>
                     </div>
                 `);
             }
