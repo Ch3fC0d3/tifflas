@@ -5984,15 +5984,8 @@
                     autoConfigureCurves();
                     generateCurveInputs();
                     const appliedHints = applyOcrSuggestions();
-                    const usedSessionDepth = loadDepthConfigFromSession();
                     const aiNote = appliedHints ? ' ✨ AI suggestions applied.' : '';
-                    const sessionNote = usedSessionDepth === 'exact'
-                        ? ' (reused last depth setup this session)'
-                        : (usedSessionDepth === 'scaled'
-                            ? ' (scaled last depth setup to this image)'
-                            : '');
-
-                    showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}${sessionNote}`, 'success');
+                    showStatus(`✅ Image loaded: ${imageWidth}×${imageHeight}px${aiNote}`, 'success');
                     renderAiInsights();
                     renderDepthOverlays();
                     updateSelectionSummary();
@@ -7580,6 +7573,7 @@
 
             const allowDepth = !options || options.allowDepth !== false;
             const allowCurves = !options || options.allowCurves !== false;
+            const allowDepthPixels = !!(options && options.allowDepthPixels === true);
 
             let applied = false;
             const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -7602,31 +7596,39 @@
                     const topDepthDefault = 1000;
                     const bottomDepthDefault = 2000;
 
-                    const depthLooksUserSet = (
+                    const depthValuesLookUserSet = (
                         (Number.isFinite(topDepthCurrent) && topDepthCurrent !== topDepthDefault) ||
-                        (Number.isFinite(bottomDepthCurrent) && bottomDepthCurrent !== bottomDepthDefault) ||
+                        (Number.isFinite(bottomDepthCurrent) && bottomDepthCurrent !== bottomDepthDefault)
+                    );
+
+                    const depthPixelsLookUserSet = (
                         (Number.isFinite(topPxCurrent) && topPxCurrent !== topPxDefault) ||
                         (Number.isFinite(bottomPxCurrent) && bottomPxDefault !== null && bottomPxCurrent !== bottomPxDefault)
                     );
 
-                    // Only apply depth hints if the user hasn't already configured
-                    // a custom depth window. This ensures AI never overwrites
-                    // a manual or session-restored depth setup.
-                    if (!depthLooksUserSet) {
-                        if (Number.isFinite(depthHint.top_px)) {
-                            topPxInput.value = Math.round(clamp(depthHint.top_px, 0, imageHeight - 1));
-                            applied = true;
-                        }
-                        if (Number.isFinite(depthHint.bottom_px)) {
-                            bottomPxInput.value = Math.round(clamp(depthHint.bottom_px, 0, imageHeight - 1));
-                            applied = true;
-                        }
+                    // Auto-fill depth VALUES, but do not auto-shrink the pixel
+                    // window on upload. OCR often only sees labels from a
+                    // partial interval, which can clip tracing too early.
+                    if (!depthValuesLookUserSet) {
                         if (Number.isFinite(depthHint.top_depth)) {
                             topDepthInput.value = depthHint.top_depth;
                             applied = true;
                         }
                         if (Number.isFinite(depthHint.bottom_depth)) {
                             bottomDepthInput.value = depthHint.bottom_depth;
+                            applied = true;
+                        }
+                    }
+
+                    // Only let OCR set top/bottom pixels when a caller opts in
+                    // explicitly. Manual panel/depth selection stays in user control.
+                    if (allowDepthPixels && !depthPixelsLookUserSet) {
+                        if (Number.isFinite(depthHint.top_px)) {
+                            topPxInput.value = Math.round(clamp(depthHint.top_px, 0, imageHeight - 1));
+                            applied = true;
+                        }
+                        if (Number.isFinite(depthHint.bottom_px)) {
+                            bottomPxInput.value = Math.round(clamp(depthHint.bottom_px, 0, imageHeight - 1));
                             applied = true;
                         }
                     }
